@@ -1,6 +1,6 @@
 module.exports = {
   plugins: {
-    '@tailwindcss/vite': {},
-    autoprefixer: {},
-  },
-};
+    '@tailwindcss/postcss': {},
+    'autoprefixer': {},
+  }
+}
