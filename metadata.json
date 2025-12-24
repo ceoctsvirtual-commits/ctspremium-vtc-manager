@@ -1,5 +1,5 @@
 {
-  "name": "CTSPREMIUM VTC Manager",
+  "name": "CTSPREMIUM",
   "description": "A comprehensive management system for virtual trucking companies, featuring fleet management, financial tools, and real-time tracking.",
   "requestFramePermissions": [
     "geolocation"

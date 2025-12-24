@@ -24,27 +24,26 @@ export const RegisterDriver: React.FC<Props> = ({ onNavigate }) => {
 
   useEffect(() => {
       const data = StorageService.getData();
-      // Filter only companies/groups, exclude autonomous unless they hire? Assuming company/group for now
       const hiringOrgs = data.dbCompanies.filter(c => c.type === 'COMPANY' || c.type === 'GROUP');
       setCompanies(hiringOrgs);
   }, []);
 
-  // Update available platforms when company changes
   useEffect(() => {
       if (selectedCompanyId) {
           const comp = companies.find(c => c.id === selectedCompanyId);
           if (comp) {
               setAvailablePlatforms(comp.platforms);
-              setSelectedPlatform(''); // Reset selection
+              setSelectedPlatform(''); 
           }
       } else {
           setAvailablePlatforms([]);
       }
   }, [selectedCompanyId, companies]);
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setDriverPhoto(URL.createObjectURL(e.target.files[0]));
+      const base64 = await StorageService.fileToBase64(e.target.files[0]);
+      setDriverPhoto(base64);
     }
   };
 
@@ -61,8 +60,6 @@ export const RegisterDriver: React.FC<Props> = ({ onNavigate }) => {
       }
 
       const comp = companies.find(c => c.id === selectedCompanyId);
-      
-      // Check duplicate email (Mock)
       const data = StorageService.getData();
       const existing = data.dbDrivers.find(d => d.email === email);
       if (existing) {
@@ -70,13 +67,20 @@ export const RegisterDriver: React.FC<Props> = ({ onNavigate }) => {
           return;
       }
 
-      // Add to requests (simulating pending approval)
+      // Envia detalhes para que o approver tenha tudo que precisa
       StorageService.addRequest({
           name: name,
           avatar: driverPhoto || 'https://placehold.co/100x100/333/FFF?text=D',
           message: `Cadastro novo na empresa ${comp?.name} para plataforma ${selectedPlatform}`,
           type: 'ENTRY',
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          details: { 
+              email, 
+              password, 
+              companyId: selectedCompanyId, 
+              companyName: comp?.name,
+              platform: selectedPlatform 
+          }
       });
 
       alert('Cadastro enviado! Aguarde a aprovação da empresa para acessar o sistema.');
@@ -193,7 +197,6 @@ export const RegisterDriver: React.FC<Props> = ({ onNavigate }) => {
                         <p className="text-xs text-gray-500">Esta empresa não configurou plataformas ainda.</p>
                     )}
                 </div>
-                <p className="text-[10px] text-gray-500 mt-1">Plataformas restritas às configuradas pela empresa.</p>
             </div>
           )}
 

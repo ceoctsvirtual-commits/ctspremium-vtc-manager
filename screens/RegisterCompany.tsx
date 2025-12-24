@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ScreenName, PLATFORMS_LIST, SEGMENTS_LIST, OrganizationType } from '../types';
+import { ScreenName, OrganizationType } from '../types';
 import { StorageService, AppData } from '../utils/storage';
 
 interface Props {
@@ -10,6 +10,9 @@ interface Props {
 export const RegisterCompany: React.FC<Props> = ({ onNavigate }) => {
   const [formData, setFormData] = useState<AppData>(StorageService.getData());
   const [regType, setRegType] = useState<OrganizationType>('COMPANY');
+  const [rememberMe, setRememberMe] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorDetails, setErrorDetails] = useState<{msg: string, isRls: boolean} | null>(null);
   
   const logoInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
@@ -29,15 +32,6 @@ export const RegisterCompany: React.FC<Props> = ({ onNavigate }) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const togglePlatform = (platform: string) => {
-    const current = formData.platforms;
-    if (current.includes(platform)) {
-      handleChange('platforms', current.filter(p => p !== platform));
-    } else {
-      handleChange('platforms', [...current, platform]);
-    }
-  };
-
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'companyLogo' | 'companyBanner' | 'ownerPhoto') => {
     if (e.target.files && e.target.files[0]) {
       try {
@@ -49,32 +43,54 @@ export const RegisterCompany: React.FC<Props> = ({ onNavigate }) => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    StorageService.saveData(formData);
-    // Automatically register the company/group/autonomous entry into the dbCompanies table
-    if (formData.companyName) {
-        // Check if exists to avoid dups in this mock
-        const existing = formData.dbCompanies.find(c => c.name === formData.companyName);
-        if (!existing) {
-            StorageService.createCompany({
-                type: regType,
-                name: formData.companyName,
-                tag: formData.companyTag,
-                logo: formData.companyLogo,
-                banner: formData.companyBanner,
-                ownerName: formData.ownerName,
-                ownerEmail: formData.ownerEmail,
-                description: `Registro ${getLabel()} Oficial`,
-                segment: formData.segment,
-                platforms: formData.platforms,
-                isGroup: regType === 'GROUP'
-            });
-        }
-    }
+    setIsSubmitting(true);
+    setErrorDetails(null);
     
-    alert(`Cadastro de ${getLabel()} realizado com sucesso! Você será redirecionado para o sistema.`);
-    onNavigate(ScreenName.DASHBOARD);
+    try {
+        if (!formData.companyName || !formData.ownerEmail || !formData.ownerPass) {
+            alert("Por favor, preencha todos os campos obrigatórios.");
+            setIsSubmitting(false);
+            return;
+        }
+
+        await StorageService.createCompany({
+            type: regType,
+            name: formData.companyName,
+            tag: formData.companyTag,
+            logo: formData.companyLogo,
+            banner: formData.companyBanner,
+            ownerName: formData.ownerName,
+            ownerEmail: formData.ownerEmail,
+            ownerPass: formData.ownerPass,
+            ownerPhoto: formData.ownerPhoto,
+            description: `Registro ${getLabel()} Oficial`,
+            segment: formData.segment || "Truck",
+            platforms: formData.platforms || ["ETS2", "ATS"],
+            isGroup: regType === 'GROUP'
+        });
+        
+        if (rememberMe) {
+            StorageService.saveRememberedCredentials(formData.ownerEmail, formData.ownerPass);
+        }
+
+        alert(`Cadastro de ${getLabel()} realizado com sucesso! Infraestrutura Virtual CTS Ativada.`);
+        onNavigate(ScreenName.DASHBOARD);
+    } catch (err: any) {
+        console.error("Registration Failure:", err);
+        const errStr = err.message.toLowerCase();
+        const isRls = errStr.includes('row-level security') || 
+                      errStr.includes('rls') || 
+                      errStr.includes('policy') ||
+                      errStr.includes('violates') ||
+                      errStr.includes('permission') ||
+                      errStr.includes('column') ||
+                      errStr.includes('schema cache');
+        setErrorDetails({ msg: err.message, isRls });
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   const getLabel = () => {
@@ -83,208 +99,308 @@ export const RegisterCompany: React.FC<Props> = ({ onNavigate }) => {
       return 'Empresa';
   };
 
+  const sqlFixCommand = `
+-- SCRIPT MESTRE DE RECONSTRUÇÃO CTS
+-- Este código apaga e recria as tabelas do zero com as colunas corretas.
+
+-- 1. APAGAR TABELAS CONFLITANTES
+DROP TABLE IF EXISTS companies, drivers, trips, requests, roles, logs CASCADE;
+
+-- 2. CRIAR TABELA COMPANIES
+CREATE TABLE companies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    logo TEXT,
+    banner TEXT,
+    owner_name TEXT,
+    owner_email TEXT,
+    owner_photo TEXT,
+    type TEXT,
+    platforms TEXT[],
+    segment TEXT,
+    is_group BOOLEAN DEFAULT FALSE,
+    description TEXT
+);
+
+-- 3. CRIAR TABELA DRIVERS (COM PASSWORD)
+CREATE TABLE drivers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    company_id TEXT REFERENCES companies(id),
+    company_name TEXT,
+    avatar TEXT,
+    role_id TEXT,
+    status TEXT DEFAULT 'Ativo',
+    distance NUMERIC DEFAULT 0,
+    rank NUMERIC DEFAULT 0
+);
+
+-- 4. CRIAR DEMAIS TABELAS
+CREATE TABLE trips (id TEXT PRIMARY KEY, origin TEXT, destination TEXT, distance NUMERIC, value TEXT, date TEXT, status TEXT, platform TEXT, driver_name TEXT, driver_avatar TEXT, cargo TEXT, weight TEXT, truck TEXT);
+CREATE TABLE requests (id TEXT PRIMARY KEY, name TEXT, avatar TEXT, message TEXT, type TEXT, timestamp TEXT, from_id TEXT, target_id TEXT, details JSONB);
+CREATE TABLE roles (id TEXT PRIMARY KEY, name TEXT, color TEXT, permissions TEXT[], company_id TEXT, is_system BOOLEAN DEFAULT FALSE);
+CREATE TABLE logs (id TEXT PRIMARY KEY, action TEXT, details TEXT, timestamp TEXT, user_email TEXT, type TEXT);
+
+-- 5. LIBERAR ACESSO TOTAL (SEM RLS)
+ALTER TABLE companies DISABLE ROW LEVEL SECURITY;
+ALTER TABLE drivers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE trips DISABLE ROW LEVEL SECURITY;
+ALTER TABLE requests DISABLE ROW LEVEL SECURITY;
+ALTER TABLE roles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE logs DISABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON TABLE companies TO anon;
+GRANT ALL ON TABLE drivers TO anon;
+GRANT ALL ON TABLE trips TO anon;
+GRANT ALL ON TABLE requests TO anon;
+GRANT ALL ON TABLE roles TO anon;
+GRANT ALL ON TABLE logs TO anon;
+
+GRANT USAGE ON SCHEMA public TO anon;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon;
+`.trim();
+
   return (
     <div className="flex flex-col min-h-screen bg-background-light dark:bg-background-dark text-gray-900 dark:text-white font-display transition-colors duration-300">
       <div className="sticky top-0 z-20 flex items-center bg-white dark:bg-background-dark p-4 border-b border-gray-200 dark:border-gray-800 safe-area-top shadow-sm dark:shadow-none">
-        <button onClick={() => onNavigate(ScreenName.INTRO)} className="text-gray-600 dark:text-white flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors">
+        <button onClick={() => onNavigate(ScreenName.INTRO)} className="text-gray-600 dark:text-white flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors" disabled={isSubmitting}>
           <span className="material-symbols-outlined">arrow_back</span>
         </button>
         <h2 className="text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center pr-10">
-            Cadastro de {getLabel()}
+            Setup de Organização
         </h2>
       </div>
 
       <div className="flex-1 w-full max-w-[480px] mx-auto px-6 py-6 overflow-y-auto pb-24 safe-area-bottom">
-        <div className="mb-6 text-center">
-          <h2 className="text-2xl font-bold leading-tight mb-2">Configure sua Organização</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
+        {errorDetails && (
+            <div className={`mb-10 p-6 rounded-[2.5rem] border-2 shadow-2xl animate-in zoom-in-95 ${errorDetails.isRls ? 'bg-amber-500/10 border-amber-500/50' : 'bg-red-500/10 border-red-500/50'}`}>
+                <div className="flex items-start gap-4 mb-4">
+                    <div className="size-12 rounded-2xl bg-amber-500 flex items-center justify-center text-black shrink-0">
+                        <span className="material-symbols-outlined text-3xl">database_off</span>
+                    </div>
+                    <div className="flex-1">
+                        <p className={`font-black uppercase tracking-widest text-xs mb-1 ${errorDetails.isRls ? 'text-amber-500' : 'text-red-500'}`}>
+                            {errorDetails.msg.includes('column') || errorDetails.msg.includes('password') ? 'Erro de Esquema (Tabelas Faltando)' : 'Infraestrutura Bloqueada'}
+                        </p>
+                        <p className="text-[11px] text-slate-300 leading-relaxed font-bold">{errorDetails.msg}</p>
+                    </div>
+                </div>
+                
+                {errorDetails.isRls && (
+                    <div className="mt-6 pt-6 border-t border-amber-500/20">
+                        <p className="text-[10px] font-black text-amber-400 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                           <span className="material-symbols-outlined text-sm">construction</span> Script de Reconstrução Total:
+                        </p>
+                        <ol className="text-[10px] text-slate-400 space-y-3 mb-6 list-decimal pl-4 font-medium">
+                            <li>Vá ao <b>SQL Editor</b> no seu Supabase.</li>
+                            <li>Clique em <b>"+ New Query"</b>.</li>
+                            <li>Cole o script abaixo (ele vai recriar o banco corretamente para o App).</li>
+                            <li>Clique em <b>"RUN"</b>.</li>
+                        </ol>
+                        <div className="bg-black/80 rounded-2xl p-4 font-mono text-[9px] text-emerald-400 overflow-x-auto whitespace-pre border border-white/10 shadow-inner mb-6 select-all">
+                            {sqlFixCommand}
+                        </div>
+                        <button 
+                            onClick={() => {
+                                navigator.clipboard.writeText(sqlFixCommand);
+                                alert("Script Mestre copiado! Vá ao SQL Editor, cole e clique em RUN. Isso criará as colunas 'password' e todas as outras necessárias.");
+                            }}
+                            className="w-full py-5 bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black uppercase tracking-[0.3em] rounded-2xl transition-all shadow-[0_10px_30px_rgba(245,158,11,0.3)] active:scale-95 flex items-center justify-center gap-3"
+                        >
+                            <span className="material-symbols-outlined">content_copy</span>
+                            Copiar Script Mestre
+                        </button>
+                    </div>
+                )}
+            </div>
+        )}
+
+        <div className="mb-10 text-center">
+          <div className="inline-flex items-center gap-2 bg-primary/10 px-4 py-1.5 rounded-full mb-4 border border-primary/20">
+              <span className="material-symbols-outlined text-primary text-sm">rocket_launch</span>
+              <span className="text-[10px] font-black text-primary uppercase tracking-widest">Global Logistics Setup</span>
+          </div>
+          <h2 className="text-3xl font-black leading-tight mb-2 uppercase tracking-tight">Registro de Identidade</h2>
+          <p className="text-gray-500 dark:text-gray-400 text-xs font-medium px-4">
             {regType === 'AUTONOMOUS' 
-                ? 'Preencha os dados da sua operação autônoma.' 
-                : `Primeiro, os dados do ${getLabel()}, depois os seus.`}
+                ? 'Configure seu perfil master de motorista independente.' 
+                : `Setup administrativo total para seu ${getLabel()} CTS.`}
           </p>
         </div>
 
-        <form className="flex flex-col gap-8" onSubmit={handleSubmit}>
+        <form className="flex flex-col gap-12" onSubmit={handleSubmit}>
           
-          {/* Dados da Organização */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-2">
-                <span className="material-symbols-outlined text-primary">domain</span>
-                <h3 className="text-sm font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">Dados do {getLabel()}</h3>
+          <div className="space-y-6">
+            <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-3">
+                <span className="material-symbols-outlined text-primary">corporate_fare</span>
+                <h3 className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-[0.2em]">Identidade Visual</h3>
             </div>
 
-            {/* Banner Upload */}
-            <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold text-gray-500 uppercase">Banner de Capa</label>
+            <div className="flex flex-col gap-3">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Capa da VTC</label>
                 <div 
-                   onClick={() => bannerInputRef.current?.click()}
-                   className={`h-48 w-full rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer transition-colors bg-white dark:bg-surface-dark overflow-hidden ${formData.companyBanner ? 'border-primary' : 'border-gray-300 dark:border-gray-600 hover:border-primary'}`}
-                   style={{ 
-                       backgroundImage: formData.companyBanner ? `url('${formData.companyBanner}')` : 'none',
-                       backgroundSize: 'cover',
-                       backgroundPosition: 'center'
-                   }}
+                   onClick={() => !isSubmitting && bannerInputRef.current?.click()}
+                   className={`h-40 w-full rounded-3xl border-2 border-dashed flex items-center justify-center cursor-pointer transition-all bg-white dark:bg-surface-dark overflow-hidden group hover:border-primary ${formData.companyBanner ? 'border-primary' : 'border-gray-300 dark:border-gray-700'}`}
                >
-                   {!formData.companyBanner && (
+                   {formData.companyBanner ? (
+                       <img src={formData.companyBanner} alt="Banner" className="w-full h-full object-cover" />
+                   ) : (
                        <div className="flex flex-col items-center text-gray-400 dark:text-gray-500">
-                           <span className="material-symbols-outlined text-4xl mb-1">panorama</span>
-                           <span className="text-[10px] mt-1">Toque para adicionar banner</span>
+                           <span className="material-symbols-outlined text-3xl mb-2">add_photo_alternate</span>
+                           <span className="text-[9px] font-black uppercase tracking-widest text-center">Banner (1200x400)</span>
                        </div>
                    )}
                </div>
                <input ref={bannerInputRef} type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'companyBanner')} />
             </div>
 
-            {/* Logo Upload */}
-            <div className="flex flex-col items-center mb-2 -mt-16 relative z-10">
-               <div 
-                   onClick={() => logoInputRef.current?.click()}
-                   className={`h-28 w-28 rounded-full border-[5px] border-background-light dark:border-background-dark shadow-lg flex items-center justify-center cursor-pointer transition-colors bg-white dark:bg-surface-dark overflow-hidden ${formData.companyLogo ? 'border-primary' : ''}`}
-               >
-                   {formData.companyLogo ? (
-                       <img src={formData.companyLogo} alt="Logo" className="w-full h-full object-cover" />
-                   ) : (
-                       <div className="flex flex-col items-center text-gray-400 dark:text-gray-500">
-                           <span className="material-symbols-outlined text-2xl">add_photo_alternate</span>
-                           <span className="text-[10px] mt-1">Logo</span>
-                       </div>
-                   )}
+            <div className="flex flex-col items-center mb-4 -mt-16 relative z-10">
+               <div className="relative">
+                  <div 
+                      onClick={() => !isSubmitting && logoInputRef.current?.click()}
+                      className={`h-32 w-32 rounded-[2rem] border-[6px] border-background-light dark:border-background-dark shadow-2xl flex items-center justify-center cursor-pointer transition-all bg-white dark:bg-surface-dark overflow-hidden group hover:scale-105 ${formData.companyLogo ? 'border-primary' : 'border-gray-300 dark:border-gray-700'}`}
+                  >
+                      {formData.companyLogo ? (
+                          <img src={formData.companyLogo} alt="Logo" className="w-full h-full object-cover" />
+                      ) : (
+                          <div className="flex flex-col items-center text-gray-400 dark:text-gray-500">
+                              <span className="material-symbols-outlined text-2xl">apartment</span>
+                              <span className="text-[9px] font-bold uppercase">Logo</span>
+                          </div>
+                      )}
+                  </div>
+                  <div className="absolute bottom-1 right-1 bg-primary text-white p-2 rounded-2xl shadow-lg border-2 border-background-dark">
+                      <span className="material-symbols-outlined text-[18px] block">photo_camera</span>
+                  </div>
                </div>
                <input ref={logoInputRef} type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'companyLogo')} />
-               <p className="text-[10px] text-gray-500 mt-1">Logo Principal</p>
             </div>
             
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Nome {regType === 'AUTONOMOUS' ? 'Fantasia' : `do ${getLabel()}`}</label>
-              <input 
-                className="w-full h-14 pl-4 rounded-lg bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none"
-                placeholder={regType === 'AUTONOMOUS' ? "Ex: QRA Bolinha Transportes" : `Ex: TransGlobal ${getLabel()}`}
-                type="text"
-                required
-                value={formData.companyName}
-                onChange={(e) => handleChange('companyName', e.target.value)}
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">TAG (Sigla)</label>
-              <input 
-                className="w-full h-14 pl-4 rounded-lg bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none uppercase"
-                placeholder="[TAG]" 
-                type="text"
-                maxLength={6}
-                required
-                value={formData.companyTag}
-                onChange={(e) => handleChange('companyTag', e.target.value)}
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Segmento de Atuação</label>
-                <div className="flex gap-2">
-                    {SEGMENTS_LIST.map(segment => (
-                        <button
-                            key={segment}
-                            type="button"
-                            onClick={() => handleChange('segment', segment)}
-                            className={`flex-1 h-10 rounded-lg text-sm font-bold border transition-all ${formData.segment === segment ? 'bg-primary border-primary text-white' : 'bg-white dark:bg-surface-dark border-gray-200 dark:border-border-dark text-gray-500 hover:border-gray-400'}`}
-                        >
-                            {segment}
-                        </button>
-                    ))}
+            <div className="grid gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Nome da Organização</label>
+                  <input 
+                    className="w-full h-14 pl-4 rounded-2xl bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary outline-none font-bold shadow-sm"
+                    placeholder="Ex: Transportadora CTS Global"
+                    type="text"
+                    required
+                    disabled={isSubmitting}
+                    value={formData.companyName}
+                    onChange={(e) => handleChange('companyName', e.target.value)}
+                  />
                 </div>
-            </div>
 
-            <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Plataformas Suportadas</label>
-                <div className="flex flex-wrap gap-2">
-                    {PLATFORMS_LIST.map(platform => (
-                        <button
-                            key={platform}
-                            type="button"
-                            onClick={() => togglePlatform(platform)}
-                            className={`px-4 py-2 rounded-full text-xs font-bold border transition-all ${formData.platforms.includes(platform) ? 'bg-primary/20 border-primary text-primary' : 'bg-white dark:bg-surface-dark border-gray-200 dark:border-border-dark text-gray-500'}`}
-                        >
-                            {platform}
-                        </button>
-                    ))}
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">TAG (Sigla)</label>
+                  <input 
+                    className="w-full h-14 pl-4 rounded-2xl bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary outline-none uppercase font-black shadow-sm"
+                    placeholder="[TAG]" 
+                    type="text"
+                    maxLength={6}
+                    required
+                    disabled={isSubmitting}
+                    value={formData.companyTag}
+                    onChange={(e) => handleChange('companyTag', e.target.value)}
+                  />
                 </div>
             </div>
           </div>
 
-          {/* Dados do Proprietário */}
-          <div className="space-y-4">
-             <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-2 pt-4">
-                <span className="material-symbols-outlined text-primary">person</span>
-                <h3 className="text-sm font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    {regType === 'AUTONOMOUS' ? 'Seus Dados' : 'Dados do Fundador'}
-                </h3>
+          <div className="space-y-6">
+             <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 pb-3">
+                <span className="material-symbols-outlined text-primary">account_circle</span>
+                <h3 className="text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-[0.2em]">Dados do Fundador</h3>
             </div>
 
-            {/* Owner Photo Field - Added */}
-            <div className="flex items-center gap-4 py-2">
+            <div className="flex items-center gap-5 py-5 bg-primary/5 rounded-3xl px-5 border border-primary/10">
                 <div 
-                   onClick={() => ownerPhotoInputRef.current?.click()}
-                   className="h-20 w-20 rounded-full border-2 border-dashed border-gray-400 flex items-center justify-center cursor-pointer hover:border-primary overflow-hidden bg-white dark:bg-surface-dark"
+                   onClick={() => !isSubmitting && ownerPhotoInputRef.current?.click()}
+                   className={`h-24 w-24 rounded-full border-2 border-dashed flex items-center justify-center cursor-pointer hover:border-primary overflow-hidden transition-all bg-white dark:bg-surface-dark shrink-0 shadow-inner ${formData.ownerPhoto ? 'border-primary' : 'border-gray-400'}`}
                 >
                    {formData.ownerPhoto ? (
                        <img src={formData.ownerPhoto} alt="Owner" className="w-full h-full object-cover" />
                    ) : (
-                       <span className="material-symbols-outlined text-gray-400">person_add</span>
+                       <span className="material-symbols-outlined text-gray-400 text-3xl">add_a_photo</span>
                    )}
                 </div>
-                <div>
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Foto de Perfil</p>
-                    <p className="text-xs text-gray-500">Adicione sua foto pessoal</p>
-                    <button type="button" onClick={() => ownerPhotoInputRef.current?.click()} className="text-xs text-primary font-bold mt-1">Carregar Imagem</button>
+                <div className="flex-1">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Avatar Master</p>
+                    <button type="button" disabled={isSubmitting} onClick={() => ownerPhotoInputRef.current?.click()} className="text-[10px] text-primary font-black uppercase tracking-widest border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary hover:text-white transition-all">Upload</button>
                 </div>
                 <input ref={ownerPhotoInputRef} type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'ownerPhoto')} />
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Seu Nome Completo</label>
-              <input 
-                className="w-full h-14 pl-4 rounded-lg bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none"
-                placeholder="Seu nome"
-                type="text"
-                required
-                value={formData.ownerName}
-                onChange={(e) => handleChange('ownerName', e.target.value)}
-              />
-            </div>
+            <div className="grid gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Nome Completo</label>
+                  <input 
+                    className="w-full h-14 pl-4 rounded-2xl bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary outline-none font-bold shadow-sm"
+                    placeholder="Seu nome oficial"
+                    type="text"
+                    required
+                    disabled={isSubmitting}
+                    value={formData.ownerName}
+                    onChange={(e) => handleChange('ownerName', e.target.value)}
+                  />
+                </div>
 
-             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">E-mail de Login</label>
-              <input 
-                className="w-full h-14 pl-4 rounded-lg bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none"
-                placeholder="email@exemplo.com"
-                type="email"
-                required
-                value={formData.ownerEmail}
-                onChange={(e) => handleChange('ownerEmail', e.target.value)}
-              />
-            </div>
+                 <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">E-mail de Acesso</label>
+                  <input 
+                    className="w-full h-14 pl-4 rounded-2xl bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary outline-none font-bold shadow-sm"
+                    placeholder="email@dominio.com"
+                    type="email"
+                    required
+                    disabled={isSubmitting}
+                    value={formData.ownerEmail}
+                    onChange={(e) => handleChange('ownerEmail', e.target.value)}
+                  />
+                </div>
 
-             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Senha de Acesso</label>
-              <input 
-                className="w-full h-14 pl-4 rounded-lg bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none"
-                placeholder="••••••••"
-                type="password"
-                required
-                value={formData.ownerPass}
-                onChange={(e) => handleChange('ownerPass', e.target.value)}
-              />
+                 <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Senha de Entrada</label>
+                  <input 
+                    className="w-full h-14 pl-4 rounded-2xl bg-white dark:bg-surface-dark border border-gray-200 dark:border-border-dark text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-primary outline-none font-bold shadow-sm"
+                    placeholder="Mínimo 6 dígitos"
+                    type="password"
+                    required
+                    disabled={isSubmitting}
+                    value={formData.ownerPass}
+                    onChange={(e) => handleChange('ownerPass', e.target.value)}
+                  />
+                </div>
             </div>
+          </div>
 
+          <div className="flex items-center gap-3 px-1 -mt-4">
+             <button 
+                type="button"
+                onClick={() => setRememberMe(!rememberMe)}
+                className={`flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out ${rememberMe ? 'bg-primary' : 'bg-gray-700'}`}
+             >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition duration-200 ease-in-out ${rememberMe ? 'translate-x-6' : 'translate-x-1'}`} />
+             </button>
+             <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest cursor-pointer" onClick={() => setRememberMe(!rememberMe)}>
+                Lembrar meus dados para o login
+             </span>
           </div>
 
           <button 
             type="submit"
-            className="w-full h-14 bg-primary hover:bg-blue-600 text-white font-bold rounded-lg shadow-lg shadow-primary/30 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+            disabled={isSubmitting}
+            className={`w-full h-16 bg-primary hover:bg-blue-600 text-white font-black uppercase tracking-[0.3em] rounded-2xl shadow-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-4 mt-4 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
-            <span className="material-symbols-outlined">rocket_launch</span>
-            Finalizar e Acessar Sistema
+            {isSubmitting ? (
+                <span className="animate-spin material-symbols-outlined">progress_activity</span>
+            ) : (
+                <>
+                    <span className="material-symbols-outlined text-xl">rocket_launch</span>
+                    Ativar Infraestrutura
+                </>
+            )}
           </button>
         </form>
       </div>

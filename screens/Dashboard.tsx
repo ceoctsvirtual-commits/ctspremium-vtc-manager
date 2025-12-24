@@ -8,78 +8,107 @@ interface Props {
   onNavigate: (screen: ScreenName) => void;
 }
 
+const SYSTEM_LOGO = "https://i.postimg.cc/GmPhKZLG/Whats-App-Image-2025-12-22-at-10-32-42.jpg";
+
 export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
   const [data, setData] = useState<AppData>(StorageService.getData());
+  const [dbStatus, setDbStatus] = useState<'online' | 'error' | 'syncing'>('online');
 
   useEffect(() => {
-    // Initial load
     setData(StorageService.getData());
-    
-    // Subscribe to real-time updates from other tabs or actions
     const unsubscribe = StorageService.subscribe((newData) => {
         setData(newData);
+        if (newData.lastDbError) setDbStatus('error');
+        else setDbStatus('online');
     });
-
-    return () => unsubscribe();
+    
+    // Auto sync on mount
+    setDbStatus('syncing');
+    StorageService.fetchRemoteData().then(() => setDbStatus('online'));
+    
+    return () => { unsubscribe(); };
   }, []);
 
+  const isSuperAdmin = data.currentUserEmail === 'ceoctsvirtual@gmail.com';
+
   const getRoleLabel = () => {
-      if (data.organizationType === 'AUTONOMOUS') return 'Autônomo';
-      if (data.organizationType === 'GROUP') return 'Líder';
-      return 'Fundador';
+      if (isSuperAdmin) return 'Fundador Master';
+      const me = data.dbDrivers.find(d => d.email === data.currentUserEmail);
+      if (me) {
+          const role = data.dbRoles.find(r => r.id === me.roleId);
+          return role?.name || 'Membro';
+      }
+      return 'Proprietário';
   };
 
-  const handleNotificationClick = () => {
-      alert(`Você tem ${data.dbRequests.length} solicitações pendentes e novas atualizações do sistema.`);
-  };
+  const hasAdminAccess = StorageService.hasPermission('GLOBAL_ADMIN');
+  
+  const myCompanyDrivers = isSuperAdmin 
+    ? data.dbDrivers 
+    : data.dbDrivers.filter(d => d.companyName === data.companyName);
+    
+  const activeMembers = myCompanyDrivers.length;
+  
+  const myCompanyTrips = isSuperAdmin
+    ? data.dbTrips
+    : data.dbTrips.filter(t => {
+        const driver = data.dbDrivers.find(d => d.name === t.driverName);
+        return driver?.companyName === data.companyName;
+      });
+
+  const totalKm = myCompanyTrips.reduce((acc, t) => acc + Number(t.distance), 0);
+  const totalRevenue = myCompanyTrips.reduce((acc, t) => acc + (parseFloat(t.value.replace(/\./g, '').replace(',', '.')) || 0), 0);
 
   return (
-    <div className="bg-background-light dark:bg-background-dark font-display text-gray-900 dark:text-white min-h-screen relative pb-24 transition-colors duration-300">
-      <div className="sticky top-0 z-20 flex items-center bg-white dark:bg-background-dark p-4 border-b border-gray-200 dark:border-gray-800 justify-between safe-area-top shadow-sm dark:shadow-none">
-        <div className="flex-1"></div>
-        <h2 className="text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">Gerenciamento</h2>
+    <div className="bg-background-dark font-display text-white min-h-screen relative pb-24 transition-colors duration-300">
+      <div className="sticky top-0 z-20 flex items-center bg-background-dark/95 backdrop-blur-md p-4 border-b border-white/5 justify-between safe-area-top shadow-xl">
+        <div className="flex-1">
+            <div className="flex items-center gap-2">
+                <div className={`size-2 rounded-full ${dbStatus === 'online' ? 'bg-green-500' : dbStatus === 'syncing' ? 'bg-blue-500 animate-pulse' : 'bg-red-500'}`}></div>
+                <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">{dbStatus}</span>
+            </div>
+        </div>
+        <h2 className="text-lg font-bold leading-tight tracking-[-0.015em] flex-1 text-center">CTSPREMIUM</h2>
         <div className="flex flex-1 justify-end">
           <button 
-            onClick={handleNotificationClick}
-            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors relative"
+            onClick={() => onNavigate(ScreenName.REQUESTS)}
+            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors relative"
           >
-            <span className="material-symbols-outlined text-gray-600 dark:text-white">notifications</span>
+            <span className="material-symbols-outlined text-white">notifications</span>
             {data.dbRequests.length > 0 && (
-                <span className="absolute top-2 right-2 h-2.5 w-2.5 rounded-full bg-red-500 border border-white dark:border-background-dark"></span>
+                <span className="absolute top-2 right-2 h-2.5 w-2.5 rounded-full bg-red-500 border-2 border-background-dark"></span>
             )}
           </button>
         </div>
       </div>
 
       <div className="relative flex flex-col p-4">
-        <div className="flex w-full flex-col gap-4 items-center bg-white dark:bg-[#1C2533] p-0 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
-          
-          {/* Banner */}
-          <div className="w-full h-48 bg-gray-200 dark:bg-gray-800 relative">
+        <div className="flex w-full flex-col gap-4 items-center bg-surface-card p-0 rounded-[2rem] shadow-2xl border border-white/5 overflow-hidden">
+          <div className="w-full h-44 bg-gray-900 relative">
               {data.companyBanner ? (
                   <div className="w-full h-full bg-cover bg-center" style={{ backgroundImage: `url('${data.companyBanner}')` }}></div>
               ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gray-800">
-                      <span className="material-symbols-outlined text-6xl opacity-20">panorama</span>
+                  <div className="w-full h-full flex items-center justify-center text-gray-400 bg-gray-950">
+                      <img src={SYSTEM_LOGO} className="w-full h-full object-cover opacity-10" alt="CTS" />
+                      <span className="absolute material-symbols-outlined text-5xl opacity-20">apartment</span>
                   </div>
               )}
-              {/* Gradient overlay for text readability if needed */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-background-dark via-transparent to-transparent"></div>
           </div>
 
-          <div className="flex gap-4 flex-col items-center -mt-16 px-6 pb-6 relative z-10">
+          <div className="flex gap-4 flex-col items-center -mt-16 px-6 pb-8 relative z-10">
             <div 
-              className="bg-center bg-no-repeat bg-cover rounded-full h-28 w-28 border-[5px] border-white dark:border-[#1C2533] shadow-lg bg-white dark:bg-gray-800" 
-              style={{ backgroundImage: `url('${data.companyLogo || "https://lh3.googleusercontent.com/aida-public/AB6AXuAwAJIREPsmHiTzNsGjwNNTBCqUGl7rvSZmDjhCA1y7h2AH-ICESWcwY5yoDLadZ0wr18TGJa6PElG4OpMrASfLJ1ZLJK6v8sUxstQ_U2CbG_0bwKyy7UJg0QjZrvYK2VpfeuXPxfMHZTLxr0Gcyl9k4iA59vVR6fpjeJzGVisBUFy04de6sUq04T_94u7MPWTEpf5VXjm5lRQ4bni2HltgIKSoJhZ9flTY_Ec2qWwKcI9wEBx-YixUbmolPp-9PiNsFdGlPP_jun0"}')` }}
+              className="bg-center bg-no-repeat bg-cover rounded-[2.5rem] h-32 w-32 border-[6px] border-surface-card shadow-2xl bg-gray-800 ring-1 ring-white/10" 
+              style={{ backgroundImage: `url('${data.companyLogo || SYSTEM_LOGO}')` }}
             ></div>
-            <div className="flex flex-col items-center justify-center">
-              <h1 className="text-2xl font-bold leading-tight tracking-[-0.015em] text-center mb-2 text-gray-900 dark:text-white">{data.companyName}</h1>
+            <div className="flex flex-col items-center justify-center mt-2">
+              <h1 className="text-2xl font-black leading-tight tracking-tight text-center mb-2 text-white uppercase">{data.companyName}</h1>
               
               <div className="flex gap-2">
-                <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary border border-primary/20">
+                <span className="inline-flex items-center rounded-full bg-primary/20 px-4 py-1.5 text-[10px] font-black text-primary border border-primary/30 uppercase tracking-[0.2em]">
                   {data.companyTag}
                 </span>
-                <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-3 py-1 text-xs font-bold text-yellow-600 dark:text-yellow-500 border border-yellow-500/20">
+                <span className="inline-flex items-center rounded-full bg-amber-500/10 px-4 py-1.5 text-[10px] font-black text-amber-500 border border-amber-500/20 uppercase tracking-[0.2em]">
                   {getRoleLabel()}
                 </span>
               </div>
@@ -88,139 +117,108 @@ export const Dashboard: React.FC<Props> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* Admin Panel Access Button - Only for Founder/Leader */}
-      <div className="px-4 pb-4">
-        <button 
-            onClick={() => onNavigate(ScreenName.ADMIN_PANEL)}
-            className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-gray-900 to-gray-800 dark:from-[#253045] dark:to-[#1a2332] rounded-xl shadow-lg border border-gray-700/50 group active:scale-[0.98] transition-all"
-        >
-            <div className="flex items-center gap-3">
-                <div className="p-2 bg-white/10 rounded-lg text-white">
-                    <span className="material-symbols-outlined">admin_panel_settings</span>
-                </div>
-                <div className="text-left">
-                    <p className="text-white font-bold text-sm">Painel Administrativo</p>
-                    <p className="text-gray-400 text-xs">Acessar controles da organização</p>
-                </div>
-            </div>
-            <span className="material-symbols-outlined text-gray-400 group-hover:translate-x-1 transition-transform">arrow_forward</span>
-        </button>
-      </div>
+      {hasAdminAccess && (
+        <div className="px-4 pb-4">
+          <button 
+              onClick={() => onNavigate(ScreenName.ADMIN_PANEL)}
+              className="w-full flex items-center justify-between p-5 bg-gradient-to-br from-indigo-950 via-gray-900 to-indigo-900 rounded-3xl shadow-2xl border border-indigo-500/30 group transition-all active:scale-[0.98]"
+          >
+              <div className="flex items-center gap-4">
+                  <div className="size-12 bg-primary rounded-2xl text-white flex items-center justify-center shadow-lg shadow-primary/20 ring-1 ring-white/20">
+                      <span className="material-symbols-outlined text-2xl">shield_person</span>
+                  </div>
+                  <div className="text-left">
+                      <p className="text-white font-black text-sm uppercase tracking-tight">Painel de Fundador</p>
+                      <p className="text-indigo-300 text-[10px] font-bold uppercase tracking-widest">Controle Master Global</p>
+                  </div>
+              </div>
+              <span className="material-symbols-outlined text-indigo-300 group-hover:translate-x-1 transition-transform">chevron_right</span>
+          </button>
+        </div>
+      )}
 
       <div className="px-4 pb-2">
         <div className="grid grid-cols-3 gap-3">
-          <button onClick={() => onNavigate(ScreenName.ADMIN_PANEL)} className="flex flex-col items-center gap-1 rounded-xl p-3 bg-white dark:bg-[#1C2533] border border-gray-200 dark:border-gray-800 shadow-sm hover:bg-gray-50 dark:hover:bg-[#252f40] transition-colors">
-            <div className="rounded-full bg-blue-500/10 p-2">
-              <span className="material-symbols-outlined text-blue-500 text-[20px]">group</span>
-            </div>
-            <p className="text-gray-500 dark:text-[#92a4c9] text-xs font-medium">Membros</p>
-            <p className="text-gray-900 dark:text-white text-lg font-bold">{data.dbDrivers.length}</p>
-          </button>
-          
-          <button onClick={() => onNavigate(ScreenName.MAP)} className="flex flex-col items-center gap-1 rounded-xl p-3 bg-white dark:bg-[#1C2533] border border-gray-200 dark:border-gray-800 shadow-sm hover:bg-gray-50 dark:hover:bg-[#252f40] transition-colors">
-            <div className="rounded-full bg-green-500/10 p-2">
-              <span className="material-symbols-outlined text-green-500 text-[20px]">local_shipping</span>
-            </div>
-            <p className="text-gray-500 dark:text-[#92a4c9] text-xs font-medium">Frota</p>
-            <p className="text-gray-900 dark:text-white text-lg font-bold">{data.dbDrivers.length * 2}</p>
-          </button>
-          
-          <button onClick={() => onNavigate(ScreenName.CALCULATOR)} className="flex flex-col items-center gap-1 rounded-xl p-3 bg-white dark:bg-[#1C2533] border border-gray-200 dark:border-gray-800 shadow-sm hover:bg-gray-50 dark:hover:bg-[#252f40] transition-colors">
-            <div className="rounded-full bg-purple-500/10 p-2">
-              <span className="material-symbols-outlined text-purple-500 text-[20px]">payments</span>
-            </div>
-            <p className="text-gray-500 dark:text-[#92a4c9] text-xs font-medium">Caixa</p>
-            <p className="text-gray-900 dark:text-white text-lg font-bold">{(1.2 + (data.dbTrips.length * 0.1)).toFixed(1)}M</p>
-          </button>
+          <div className="flex flex-col items-center gap-1 rounded-3xl p-5 bg-surface-card border border-white/5 shadow-xl">
+            <p className="text-gray-500 text-[9px] font-black uppercase tracking-widest">Membros</p>
+            <p className="text-white text-2xl font-black">{activeMembers}</p>
+          </div>
+          <div className="flex flex-col items-center gap-1 rounded-3xl p-5 bg-surface-card border border-white/5 shadow-xl">
+            <p className="text-gray-500 text-[9px] font-black uppercase tracking-widest">Distância</p>
+            <p className="text-white text-2xl font-black">{totalKm.toLocaleString()}</p>
+          </div>
+          <div className="flex flex-col items-center gap-1 rounded-3xl p-5 bg-surface-card border border-white/5 shadow-xl">
+            <p className="text-gray-500 text-[9px] font-black uppercase tracking-widest">Receita</p>
+            <p className="text-emerald-500 text-lg font-black">R$ {totalRevenue.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
+          </div>
         </div>
       </div>
 
       <div className="px-4 py-4">
         <button 
-          onClick={() => onNavigate(ScreenName.REGISTER_DRIVER)}
-          className="w-full relative flex items-center justify-center overflow-hidden rounded-xl h-14 bg-primary hover:bg-blue-700 transition-colors text-white gap-3 shadow-lg shadow-primary/25 active:scale-95"
+          onClick={() => onNavigate(ScreenName.ADD_TRIP)}
+          className="w-full relative flex items-center justify-center overflow-hidden rounded-2xl h-16 bg-primary text-white gap-3 shadow-[0_10px_30px_rgba(19,91,236,0.3)] transition-all active:scale-95 font-black uppercase tracking-[0.2em] group"
         >
-          <span className="material-symbols-outlined text-[24px]">person_add</span>
-          <span className="text-base font-bold tracking-wide">Cadastrar Novo Membro</span>
+          <div className="absolute inset-0 bg-white/10 translate-x-full group-hover:translate-x-0 transition-transform duration-500"></div>
+          <span className="material-symbols-outlined text-[24px] relative z-10">add_circle</span>
+          <span className="relative z-10">Lançar Viagem</span>
         </button>
       </div>
 
-      <div className="flex flex-col gap-2 px-4 pb-6">
-        <h3 className="text-gray-900 dark:text-white text-lg font-bold leading-tight px-1 pb-2">Opções Rápidas</h3>
+      <div className="flex flex-col gap-2 px-4 pb-12">
+        <h3 className="text-gray-500 text-[10px] font-black uppercase tracking-[0.3em] px-2 pb-2">Ecossistema Logístico</h3>
         <div className="grid grid-cols-2 gap-4">
-          <button onClick={() => onNavigate(ScreenName.MAP)} className="flex flex-col gap-3 rounded-xl p-4 bg-white dark:bg-[#1C2533] border border-gray-200 dark:border-gray-800 shadow-sm hover:bg-gray-50 dark:hover:bg-[#252f40] transition-colors text-left group active:scale-[0.98]">
+          <button onClick={() => onNavigate(ScreenName.MAP)} className="flex flex-col gap-4 rounded-3xl p-6 bg-surface-card border border-white/5 shadow-xl hover:bg-gray-800 transition-colors text-left group">
             <div className="flex justify-between w-full">
-              <div className="rounded-lg bg-orange-500/10 p-2 w-fit">
-                <span className="material-symbols-outlined text-orange-500">garage_home</span>
+              <div className="rounded-2xl bg-orange-500/10 p-3 w-fit border border-orange-500/20 text-orange-500">
+                <span className="material-symbols-outlined">map</span>
               </div>
-              <span className="material-symbols-outlined text-gray-400 group-hover:translate-x-1 transition-transform">chevron_right</span>
+              <span className="material-symbols-outlined text-gray-700 group-hover:translate-x-1 transition-transform">chevron_right</span>
             </div>
             <div>
-              <p className="text-gray-900 dark:text-white text-base font-semibold">Gerenciar Frota</p>
-              <p className="text-gray-500 dark:text-[#92a4c9] text-xs mt-1">Manutenção e compras</p>
+              <p className="text-white text-sm font-black uppercase tracking-tight">Monitoramento</p>
+              <p className="text-gray-500 text-[9px] font-bold uppercase mt-1">Frota Ativa</p>
             </div>
           </button>
 
-          <button onClick={() => onNavigate(ScreenName.CALCULATOR)} className="flex flex-col gap-3 rounded-xl p-4 bg-white dark:bg-[#1C2533] border border-gray-200 dark:border-gray-800 shadow-sm hover:bg-gray-50 dark:hover:bg-[#252f40] transition-colors text-left group active:scale-[0.98]">
+          <button onClick={() => onNavigate(ScreenName.CALCULATOR)} className="flex flex-col gap-4 rounded-3xl p-6 bg-surface-card border border-white/5 shadow-xl hover:bg-gray-800 transition-colors text-left group">
             <div className="flex justify-between w-full">
-              <div className="rounded-lg bg-emerald-500/10 p-2 w-fit">
-                <span className="material-symbols-outlined text-emerald-500">account_balance</span>
+              <div className="rounded-2xl bg-emerald-500/10 p-3 w-fit border border-emerald-500/20 text-emerald-500">
+                <span className="material-symbols-outlined">payments</span>
               </div>
-              <span className="material-symbols-outlined text-gray-400 group-hover:translate-x-1 transition-transform">chevron_right</span>
+              <span className="material-symbols-outlined text-gray-700 group-hover:translate-x-1 transition-transform">chevron_right</span>
             </div>
             <div>
-              <p className="text-gray-900 dark:text-white text-base font-semibold">Financeiro</p>
-              <p className="text-gray-500 dark:text-[#92a4c9] text-xs mt-1">Extratos e pagamentos</p>
+              <p className="text-white text-sm font-black uppercase tracking-tight">Financeiro</p>
+              <p className="text-gray-500 text-[9px] font-bold uppercase mt-1">Divisão B2B</p>
             </div>
           </button>
 
-          <button onClick={() => onNavigate(ScreenName.REQUESTS)} className="flex flex-col gap-3 rounded-xl p-4 bg-white dark:bg-[#1C2533] border border-gray-200 dark:border-gray-800 shadow-sm hover:bg-gray-50 dark:hover:bg-[#252f40] transition-colors text-left group active:scale-[0.98]">
+          <button onClick={() => onNavigate(ScreenName.HISTORY)} className="flex flex-col gap-4 rounded-3xl p-6 bg-surface-card border border-white/5 shadow-xl hover:bg-gray-800 transition-colors text-left group">
             <div className="flex justify-between w-full">
-              <div className="rounded-lg bg-pink-500/10 p-2 w-fit">
-                <span className="material-symbols-outlined text-pink-500">pending_actions</span>
+              <div className="rounded-2xl bg-blue-500/10 p-3 w-fit border border-blue-500/20 text-blue-500">
+                <span className="material-symbols-outlined">history</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white transition-all ${data.dbRequests.length > 0 ? 'bg-red-500' : 'bg-gray-500'}`}>
-                    {data.dbRequests.length}
-                </span>
-              </div>
+              <span className="material-symbols-outlined text-gray-700 group-hover:translate-x-1 transition-transform">chevron_right</span>
             </div>
             <div>
-              <p className="text-gray-900 dark:text-white text-base font-semibold">Solicitações</p>
-              <p className="text-gray-500 dark:text-[#92a4c9] text-xs mt-1">Aprovar membros</p>
+              <p className="text-white text-sm font-black uppercase tracking-tight">Arquivo</p>
+              <p className="text-gray-500 text-[9px] font-bold uppercase mt-1">Histórico</p>
             </div>
           </button>
 
-          <button onClick={() => onNavigate(ScreenName.SETTINGS)} className="flex flex-col gap-3 rounded-xl p-4 bg-white dark:bg-[#1C2533] border border-gray-200 dark:border-gray-800 shadow-sm hover:bg-gray-50 dark:hover:bg-[#252f40] transition-colors text-left group active:scale-[0.98]">
+          <button onClick={() => onNavigate(ScreenName.RANKINGS)} className="flex flex-col gap-4 rounded-3xl p-6 bg-surface-card border border-white/5 shadow-xl hover:bg-gray-800 transition-colors text-left group">
             <div className="flex justify-between w-full">
-              <div className="rounded-lg bg-gray-500/10 p-2 w-fit">
-                <span className="material-symbols-outlined text-gray-500">settings</span>
+              <div className="rounded-2xl bg-pink-500/10 p-3 w-fit border border-pink-500/20 text-pink-500">
+                <span className="material-symbols-outlined">emoji_events</span>
               </div>
-              <span className="material-symbols-outlined text-gray-400 group-hover:translate-x-1 transition-transform">chevron_right</span>
+              <span className="material-symbols-outlined text-gray-700 group-hover:translate-x-1 transition-transform">chevron_right</span>
             </div>
             <div>
-              <p className="text-gray-900 dark:text-white text-base font-semibold">Configurações</p>
-              <p className="text-gray-500 dark:text-[#92a4c9] text-xs mt-1">Dados da conta</p>
+              <p className="text-white text-sm font-black uppercase tracking-tight">Prestigio</p>
+              <p className="text-gray-500 text-[9px] font-bold uppercase mt-1">Top Drivers</p>
             </div>
           </button>
-        </div>
-      </div>
-
-      <div className="px-4 pb-4">
-        <div 
-          onClick={() => onNavigate(ScreenName.TRIP_DETAILS)}
-          className="flex items-center justify-between rounded-xl bg-gradient-to-r from-primary/20 to-primary/5 p-4 border border-primary/20 cursor-pointer hover:border-primary/40 transition-colors group active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-white">
-              <span className="material-symbols-outlined">campaign</span>
-            </div>
-            <div className="flex flex-col">
-              <p className="text-sm font-bold text-gray-900 dark:text-white">Comboio Oficial</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Hoje às 20:00 • Servidor 1</p>
-            </div>
-          </div>
-          <span className="material-symbols-outlined text-gray-400 group-hover:text-primary group-hover:translate-x-1 transition-all">arrow_forward</span>
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 
+
 export enum ScreenName {
   INTRO = 'INTRO',
   LOGIN = 'LOGIN',
@@ -20,6 +21,19 @@ export enum ScreenName {
   ADMIN_PANEL = 'ADMIN_PANEL'
 }
 
+export type Permission = 
+  | 'GLOBAL_ADMIN' 
+  | 'MANAGE_COMPANIES' 
+  | 'MANAGE_MODERATORS' 
+  | 'MANAGE_ALL_DRIVERS' 
+  | 'VIEW_ALL_LOGS'
+  | 'OWNER_ACCESS' 
+  | 'MANAGE_COMPANY_DRIVERS' 
+  | 'APPROVE_COMPANY_TRIPS'
+  | 'DRIVER_ACCESS' 
+  | 'LOG_TRIPS' 
+  | 'VIEW_PERSONAL_ID';
+
 export interface NavItem {
   icon: string;
   label: string;
@@ -27,20 +41,31 @@ export interface NavItem {
 }
 
 export type OrganizationType = 'COMPANY' | 'GROUP' | 'AUTONOMOUS';
+export type VehicleType = 'CAR' | 'LIGHT_TRUCK' | 'TRUCK' | 'BITRUCK' | 'RODOTREM' | 'BUS' | 'MINIBUS';
+
+export interface Role {
+  id: string;
+  name: string;
+  color: string;
+  permissions: Permission[];
+  companyId?: string;
+  isSystem?: boolean;
+}
 
 export interface Company {
   id: string;
-  type: OrganizationType; // New field
+  type: OrganizationType;
   name: string;
   tag: string;
   logo: string | null;
-  banner: string | null; // New field
+  banner: string | null;
   ownerName: string;
   ownerEmail: string;
+  ownerPhoto: string | null; // Added ownerPhoto property to resolve type errors during registration
   description?: string;
   segment: string;
   platforms: string[];
-  isGroup: boolean; // Deprecated in favor of type, kept for compatibility if needed
+  isGroup: boolean;
 }
 
 export interface Driver {
@@ -50,18 +75,27 @@ export interface Driver {
   companyId: string;
   companyName: string;
   avatar: string;
-  role: string;
+  roleId: string;
   status: 'Ativo' | 'Inativo' | 'Pendente';
   distance: number;
   rank: number;
 }
 
-export interface Role {
-  id: string;
+export interface BackupRankEntry {
   name: string;
-  color: string;
-  permissions: string[];
-  companyId?: string;
+  value: string | number;
+  company?: string;
+  category: string;
+}
+
+export interface MonthlyBackup {
+  id: string;
+  month: number;
+  year: number;
+  totalRevenue: string;
+  top3: BackupRankEntry[];
+  secondaryList: BackupRankEntry[];
+  timestamp: string;
 }
 
 export interface SystemLog {
@@ -78,8 +112,11 @@ export interface Request {
     name: string;
     avatar: string;
     message: string;
-    type: 'ENTRY' | 'OTHER';
+    type: 'ENTRY' | 'OTHER' | 'CONTRACT_PROPOSAL';
     timestamp: string;
+    fromId?: string;
+    targetId?: string;
+    details?: any;
 }
 
 export interface Trip {
@@ -91,7 +128,7 @@ export interface Trip {
   date: string;
   truck: string;
   cargo: string;
-  distance: string;
+  distance: number;
   weight: string;
   platform: 'ETS2' | 'ATS' | string;
   driverName?: string;

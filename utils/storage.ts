@@ -1,5 +1,6 @@
 
-import { Company, Driver, Role, SystemLog, Trip, Request } from '../types';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Company, Driver, Role, SystemLog, Trip, Request, MonthlyBackup, Permission, VehicleType } from '../types';
 
 export interface AppSettings {
   notifications: boolean;
@@ -8,7 +9,7 @@ export interface AppSettings {
 }
 
 export interface AppData {
-  // Current User Session Data
+  currentUserEmail: string;
   companyName: string;
   companyTag: string;
   companyLogo: string | null;
@@ -17,344 +18,469 @@ export interface AppData {
   segment: string;
   platforms: string[];
   isGroup: boolean;
-  groupName: string;
   ownerName: string;
   ownerEmail: string;
   ownerPass: string;
   ownerPhoto: string | null;
+  vehicleType: VehicleType;
   settings: AppSettings;
-  
-  // Global "Database" Tables
+  lastResetMonth: number;
   dbCompanies: Company[];
   dbDrivers: Driver[];
   dbRoles: Role[];
   dbLogs: SystemLog[];
   dbTrips: Trip[];
   dbRequests: Request[];
+  dbBackups: MonthlyBackup[];
+  lastDbError: string | null;
+  isRlsError?: boolean;
 }
 
-const STORAGE_KEY = 'vtc_manager_db_v5'; // Version bumped
-const SYNC_CHANNEL = 'vtc_global_sync_channel';
+const SUPABASE_URL = 'https://ohuabtiakwwrovvtwiqp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable__y6v6Yr5nPaW1MWdqFe6pA_jB35FHx1';
+const SYSTEM_LOGO = "https://i.postimg.cc/GmPhKZLG/Whats-App-Image-2025-12-22-at-10-32-42.jpg";
 
-// Setup Broadcast Channel for Real-time Sync (Tab-to-Tab)
-const channel = new BroadcastChannel(SYNC_CHANNEL);
-const listeners = new Set<(data: AppData) => void>();
+export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-channel.onmessage = (event) => {
-    if (event.data === 'update') {
-        const newData = StorageService.getData();
-        listeners.forEach(listener => listener(newData));
-    }
-};
+const savedEmail = localStorage.getItem('vtc_remember_email') || "";
+const savedPass = localStorage.getItem('vtc_remember_pass') || "";
 
-// --- MOCK GLOBAL DATA FOR SIMULATION ---
-const MOCK_COMPANIES: Company[] = [
-  { id: '1', type: 'COMPANY', name: "TransGlobal VTC", tag: "TGL", logo: null, banner: null, ownerName: "CEO CTS Virtual", ownerEmail: "ceo@tgl.com", description: "Maior VTC do Brasil", segment: "Truck", platforms: ["ETS2", "ATS"], isGroup: false },
-  { id: '2', type: 'GROUP', name: "Logística Brasil Group", tag: "LBR", logo: null, banner: null, ownerName: "Roberto Carlos", ownerEmail: "roberto@lbr.com", description: "Focada em cargas pesadas", segment: "Misto", platforms: ["ETS2"], isGroup: true },
-  { id: '3', type: 'AUTONOMOUS', name: "Euro King (Autônomo)", tag: "EUK", logo: null, banner: null, ownerName: "Ana Julia", ownerEmail: "ana@euk.com", description: "Reis da Europa", segment: "Truck", platforms: ["ETS2"], isGroup: false },
-];
-
-const MOCK_DRIVERS: Driver[] = [
-  { id: '101', name: 'João Silva', email: 'joao@tgl.com', companyId: '1', companyName: 'TransGlobal VTC', avatar: '', role: 'Motorista', status: 'Ativo', distance: 15000, rank: 1 },
-  { id: '102', name: 'Pedro Santos', email: 'pedro@lbr.com', companyId: '2', companyName: 'Logística Brasil', avatar: '', role: 'Iniciante', status: 'Ativo', distance: 500, rank: 5 },
-  { id: '103', name: 'Marcos Paulo', email: 'marcos@tgl.com', companyId: '1', companyName: 'TransGlobal VTC', avatar: '', role: 'Elite', status: 'Ativo', distance: 32000, rank: 2 },
-  { id: '104', name: 'Julia Roberts', email: 'julia@lbr.com', companyId: '2', companyName: 'Logística Brasil', avatar: '', role: 'Gerente', status: 'Ativo', distance: 45000, rank: 3 },
-];
-
-const MOCK_ROLES: Role[] = [
-  { id: 'r1', name: 'Super Admin', color: '#ef4444', permissions: ['all'], companyId: undefined },
-  { id: 'r2', name: 'Moderador Global', color: '#f59e0b', permissions: ['manage_drivers'], companyId: undefined },
-  { id: 'r3', name: 'Gerente de Frota', color: '#3b82f6', permissions: ['manage_fleet'], companyId: '1' },
-];
-
-const MOCK_REQUESTS: Request[] = [
-    { id: 'req1', name: 'Felipe Santos', avatar: 'https://placehold.co/100x100/333/FFF?text=F', message: 'Solicitou entrada na empresa', type: 'ENTRY', timestamp: new Date().toISOString() },
-];
-
-const GLOBAL_CITIES = ['Berlin', 'Paris', 'London', 'Madrid', 'Lisbon', 'Rome', 'Warsaw', 'Amsterdam'];
-const GLOBAL_CARGO = ['Eletrônicos', 'Combustível', 'Maquinário', 'Alimentos', 'Madeira', 'Aço'];
-
-const DEFAULT_DATA: AppData = {
-  companyName: "TransGlobal VTC",
-  companyTag: "TGL",
-  companyLogo: null,
+const INITIAL_DATA: AppData = {
+  currentUserEmail: localStorage.getItem('vtc_user_email') || "",
+  companyName: "Legalizadora CTS",
+  companyTag: "CTS",
+  companyLogo: SYSTEM_LOGO,
   companyBanner: null,
   organizationType: 'COMPANY',
   segment: "Truck",
   platforms: ["ETS2", "ATS"],
   isGroup: false,
-  groupName: "",
-  ownerName: "CEO CTS Virtual",
-  ownerEmail: "ceoctsvirtual@gmail.com",
-  ownerPass: "admin123456",
+  ownerName: "Usuário",
+  ownerEmail: savedEmail,
+  ownerPass: savedPass,
   ownerPhoto: null,
-  settings: {
-    notifications: true,
-    theme: 'dark',
-    language: 'pt-BR'
-  },
-  dbCompanies: MOCK_COMPANIES,
-  dbDrivers: MOCK_DRIVERS,
-  dbRoles: MOCK_ROLES,
-  dbLogs: [
-    { id: 'l1', action: 'Sistema Iniciado', details: 'Conexão Global Estabelecida.', timestamp: new Date().toISOString(), user: 'System', type: 'INFO' }
-  ],
+  vehicleType: 'TRUCK',
+  lastResetMonth: new Date().getMonth(),
+  settings: { notifications: true, theme: 'dark', language: 'pt-BR' },
+  dbCompanies: [],
+  dbDrivers: [],
+  dbRoles: [],
+  dbLogs: [],
   dbTrips: [],
-  dbRequests: MOCK_REQUESTS
+  dbRequests: [],
+  dbBackups: [],
+  lastDbError: null
 };
 
-// Simulation State
-let simulationInterval: any = null;
+let internalData: AppData = { ...INITIAL_DATA };
+const listeners = new Set<(data: AppData) => void>();
 
 export const StorageService = {
   subscribe: (listener: (data: AppData) => void) => {
     listeners.add(listener);
-    return () => listeners.delete(listener);
+    return () => { listeners.delete(listener); };
   },
 
   notify: () => {
-    const data = StorageService.getData();
-    listeners.forEach(listener => listener(data));
-    channel.postMessage('update'); 
+    listeners.forEach(listener => listener({ ...internalData }));
   },
 
-  getData: (): AppData => {
+  getData: (): AppData => ({ ...internalData }),
+
+  setError: (error: string | null, code?: string) => {
+    internalData.lastDbError = error;
+    StorageService.notify();
+  },
+
+  saveRememberedCredentials: (email: string, pass: string) => {
+    localStorage.setItem('vtc_remember_email', email.toLowerCase().trim());
+    localStorage.setItem('vtc_remember_pass', pass);
+  },
+
+  getRememberedCredentials: () => {
+    return {
+      email: localStorage.getItem('vtc_remember_email') || "",
+      pass: localStorage.getItem('vtc_remember_pass') || ""
+    };
+  },
+
+  clearRememberedCredentials: () => {
+    localStorage.removeItem('vtc_remember_email');
+    localStorage.removeItem('vtc_remember_pass');
+  },
+
+  initRealtime: () => {
+    const channel = supabase.channel('db_sync');
+    
+    channel
+      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+        console.log("Supabase Realtime Trigger:", payload.table);
+        StorageService.fetchRemoteData(); // Atualiza tudo para todos os 50+ usuários
+      })
+      .subscribe((status) => {
+        console.log("Status Conexão Realtime:", status);
+      });
+  },
+
+  fetchRemoteData: async () => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return { 
-          ...DEFAULT_DATA, 
-          ...parsed,
-          dbCompanies: parsed.dbCompanies || DEFAULT_DATA.dbCompanies,
-          dbDrivers: parsed.dbDrivers || DEFAULT_DATA.dbDrivers,
-          dbRoles: parsed.dbRoles || DEFAULT_DATA.dbRoles,
-          dbLogs: parsed.dbLogs || DEFAULT_DATA.dbLogs,
-          dbTrips: parsed.dbTrips || DEFAULT_DATA.dbTrips,
-          dbRequests: parsed.dbRequests || DEFAULT_DATA.dbRequests,
-        };
+      const [resComp, resDriv, resTrip, resReq, resRole, resLogs] = await Promise.all([
+        supabase.from('companies').select('*'),
+        supabase.from('drivers').select('*'),
+        supabase.from('trips').select('*').order('date', { ascending: false }),
+        supabase.from('requests').select('*'),
+        supabase.from('roles').select('*'),
+        supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(50)
+      ]);
+
+      if (resComp.data) {
+        internalData.dbCompanies = resComp.data.map(c => ({
+          id: c.id,
+          name: c.name,
+          tag: c.tag,
+          logo: c.logo,
+          banner: c.banner,
+          ownerName: c.owner_name,
+          ownerEmail: c.owner_email,
+          ownerPhoto: c.owner_photo || null,
+          type: c.type,
+          platforms: c.platforms || [],
+          segment: c.segment,
+          isGroup: !!c.is_group
+        }));
       }
-    } catch (e) {
-      console.error("Erro ao carregar dados", e);
-    }
-    return DEFAULT_DATA;
-  },
 
-  saveData: (data: Partial<AppData>) => {
-    try {
-      const current = StorageService.getData();
-      const newData = { ...current, ...data };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
+      if (resDriv.data) {
+        internalData.dbDrivers = resDriv.data.map(d => ({
+          id: d.id,
+          name: d.name,
+          email: d.email,
+          companyId: d.company_id,
+          companyName: d.company_name,
+          avatar: d.avatar,
+          roleId: d.role_id,
+          status: d.status,
+          distance: Number(d.distance || 0),
+          rank: Number(d.rank || 0)
+        }));
+      }
+
+      const loggedEmail = localStorage.getItem('vtc_user_email') || localStorage.getItem('vtc_remember_email');
+      if (loggedEmail) {
+          const emailLower = loggedEmail.toLowerCase().trim();
+          const userDriver = internalData.dbDrivers.find(d => d.email.toLowerCase() === emailLower);
+          
+          if (userDriver) {
+              internalData.currentUserEmail = emailLower;
+              internalData.ownerName = userDriver.name;
+              internalData.ownerPhoto = userDriver.avatar;
+              
+              const userCompany = internalData.dbCompanies.find(c => c.ownerEmail.toLowerCase() === emailLower);
+              if (userCompany) {
+                  internalData.companyName = userCompany.name;
+                  internalData.companyTag = userCompany.tag;
+                  internalData.companyLogo = userCompany.logo || SYSTEM_LOGO;
+                  internalData.companyBanner = userCompany.banner;
+              }
+          }
+      }
+
+      if (resTrip.data) {
+        internalData.dbTrips = resTrip.data.map(t => ({
+          id: t.id,
+          origin: t.origin,
+          destination: t.destination,
+          distance: Number(t.distance || 0),
+          value: t.value,
+          date: t.date,
+          status: t.status,
+          platform: t.platform,
+          driverName: t.driver_name,
+          driverAvatar: t.driver_avatar,
+          cargo: t.cargo,
+          weight: t.weight,
+          truck: t.truck
+        }));
+      }
+
+      if (resReq.data) {
+          internalData.dbRequests = resReq.data;
+      }
+
+      if (resRole.data) {
+          internalData.dbRoles = resRole.data;
+      }
+
+      if (resLogs.data) {
+          internalData.dbLogs = resLogs.data.map(l => ({
+              id: l.id,
+              action: l.action,
+              details: l.details,
+              timestamp: l.timestamp,
+              user: l.user_email,
+              type: l.type
+          }));
+      }
+
+      StorageService.setError(null);
       StorageService.notify();
-      return newData;
-    } catch (e) {
-      console.error("Erro ao salvar dados", e);
-      return null;
+    } catch (e: any) {
+      console.warn("Sincronização offline.");
     }
   },
 
-  // --- SIMULATION ENGINE ---
-  startSimulation: () => {
-    if (simulationInterval) return;
-    
-    console.log("Starting Global VTC Network Simulation...");
-    
-    // Run simulation events every 8 seconds
-    simulationInterval = setInterval(() => {
-        const data = StorageService.getData();
-        const randomAction = Math.random();
+  login: async (email: string, pass: string): Promise<boolean> => {
+      const emailLower = email.toLowerCase().trim();
+      try {
+          const { data: user, error } = await supabase
+            .from('drivers')
+            .select('*')
+            .eq('email', emailLower)
+            .eq('password', pass)
+            .maybeSingle();
 
-        // 60% chance: New Global Trip logged
-        if (randomAction < 0.6) {
-            const randomDriver = data.dbDrivers[Math.floor(Math.random() * data.dbDrivers.length)];
-            const origin = GLOBAL_CITIES[Math.floor(Math.random() * GLOBAL_CITIES.length)];
-            const dest = GLOBAL_CITIES[Math.floor(Math.random() * GLOBAL_CITIES.length)];
-            
-            if (origin !== dest) {
-                const newTrip: Trip = {
-                    id: Date.now().toString(),
-                    origin: origin,
-                    destination: dest,
-                    distance: (Math.random() * 2000 + 100).toFixed(0),
-                    value: (Math.random() * 5000 + 500).toFixed(2),
-                    weight: (Math.random() * 25 + 5).toFixed(1),
-                    cargo: GLOBAL_CARGO[Math.floor(Math.random() * GLOBAL_CARGO.length)],
-                    platform: Math.random() > 0.5 ? 'ETS2' : 'ATS',
-                    status: 'Aprovado',
-                    date: new Date().toISOString(),
-                    truck: 'Simulated Truck',
-                    driverName: randomDriver.name,
-                    driverAvatar: randomDriver.avatar
-                };
+          if (error) {
+              StorageService.setError(`Erro Supabase: ${error.message}`, error.code);
+              return false;
+          }
 
-                // Add to Global Fleet History
-                const updatedTrips = [newTrip, ...data.dbTrips].slice(0, 50); // Keep last 50
-                StorageService.saveData({ dbTrips: updatedTrips });
-                
-                // Update driver stats
-                const updatedDrivers = data.dbDrivers.map(d => {
-                    if (d.id === randomDriver.id) {
-                        return { ...d, distance: d.distance + parseInt(newTrip.distance) };
-                    }
-                    return d;
-                }).sort((a, b) => b.distance - a.distance); // Re-rank based on new distance
-                
-                StorageService.saveData({ dbDrivers: updatedDrivers });
-            }
-        } 
-        // 20% chance: New System Log
-        else if (randomAction < 0.8) {
-             StorageService.addLog('Atualização de Frota', 'Sincronização global concluída com sucesso.', 'INFO');
-        }
-        // 5% chance: New Entry Request (Simulating growth)
-        else if (randomAction > 0.95 && data.dbRequests.length < 5) {
-            const names = ['Carlos D.', 'Amanda W.', 'Steve Rogers', 'Lara Croft'];
-            const name = names[Math.floor(Math.random() * names.length)];
-            StorageService.addRequest({
-                name: name,
-                avatar: `https://placehold.co/100x100/333/FFF?text=${name.charAt(0)}`,
-                message: 'Gostaria de participar da empresa.',
-                type: 'ENTRY',
-                timestamp: new Date().toISOString()
-            });
-            StorageService.addLog('Nova Solicitação', `${name} solicitou entrada.`, 'WARNING');
-        }
-
-    }, 8000); 
+          if (user) {
+              localStorage.setItem('vtc_user_email', emailLower);
+              const { data: company } = await supabase.from('companies').select('*').eq('owner_email', emailLower).maybeSingle();
+              
+              internalData.currentUserEmail = emailLower;
+              internalData.ownerName = user.name;
+              internalData.ownerPhoto = user.avatar;
+              internalData.ownerPass = pass;
+              internalData.companyName = company?.name || user.company_name;
+              internalData.companyTag = company?.tag || "";
+              internalData.companyLogo = company?.logo || SYSTEM_LOGO;
+              
+              await StorageService.fetchRemoteData();
+              return true;
+          }
+      } catch (e: any) {
+          StorageService.setError(`Falha crítica de conexão.`);
+      }
+      return false;
   },
 
-  // --- Global DB Methods ---
+  logout: () => {
+    localStorage.removeItem('vtc_user_email');
+    StorageService.clearRememberedCredentials();
+    internalData = { ...INITIAL_DATA, currentUserEmail: "" };
+    StorageService.notify();
+  },
 
-  addLog: (action: string, details: string, type: 'INFO' | 'WARNING' | 'DANGER' = 'INFO') => {
-    const data = StorageService.getData();
-    const newLog: SystemLog = {
-      id: Date.now().toString(),
-      action,
-      details,
-      timestamp: new Date().toISOString(),
-      user: data.ownerName,
-      type
+  // Fix: Added addLog method to record system actions
+  addLog: async (action: string, details: string, type: 'INFO' | 'WARNING' | 'DANGER') => {
+      const { error } = await supabase.from('logs').insert([{
+          id: 'LOG-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+          action,
+          details,
+          type,
+          timestamp: new Date().toISOString(),
+          user_email: internalData.currentUserEmail || 'System'
+      }]);
+      if (error) console.error("Log error:", error);
+      await StorageService.fetchRemoteData();
+  },
+
+  addTrip: async (tripData: Omit<Trip, 'id'>) => {
+      const newTripId = 'TRP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      const { error } = await supabase.from('trips').insert([{
+          ...tripData,
+          id: newTripId,
+          distance: Number(tripData.distance)
+      }]);
+      if (error) throw error;
+      
+      const driver = internalData.dbDrivers.find(d => d.name === tripData.driverName);
+      if (driver) {
+          await supabase.from('drivers').update({ 
+            distance: Number(driver.distance) + Number(tripData.distance) 
+          }).eq('id', driver.id);
+      }
+      
+      await StorageService.fetchRemoteData();
+      return { ...tripData, id: newTripId };
+  },
+
+  // Fix: Added deleteTrip method
+  deleteTrip: async (tripId: string) => {
+    const { error } = await supabase.from('trips').delete().eq('id', tripId);
+    if (error) throw error;
+    await StorageService.fetchRemoteData();
+  },
+
+  // Fix: Added createCompany method
+  createCompany: async (companyData: any) => {
+      const companyId = 'CMP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      const driverId = 'DRV-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+
+      const { error: companyError } = await supabase.from('companies').insert([{
+          id: companyId,
+          name: companyData.name,
+          tag: companyData.tag,
+          logo: companyData.logo,
+          banner: companyData.banner,
+          owner_name: companyData.ownerName,
+          owner_email: companyData.ownerEmail.toLowerCase().trim(),
+          owner_photo: companyData.ownerPhoto,
+          type: companyData.type,
+          platforms: companyData.platforms,
+          segment: companyData.segment,
+          is_group: companyData.isGroup,
+          description: companyData.description
+      }]);
+
+      if (companyError) throw companyError;
+
+      const { error: driverError } = await supabase.from('drivers').insert([{
+          id: driverId,
+          name: companyData.ownerName,
+          email: companyData.ownerEmail.toLowerCase().trim(),
+          password: companyData.ownerPass,
+          company_id: companyId,
+          company_name: companyData.name,
+          avatar: companyData.ownerPhoto,
+          role_id: 'role-owner',
+          status: 'Ativo',
+          distance: 0,
+          rank: 0
+      }]);
+
+      if (driverError) throw driverError;
+
+      await StorageService.fetchRemoteData();
+      return { id: companyId };
+  },
+
+  // Fix: Added addRequest method
+  addRequest: async (requestData: Omit<Request, 'id'>) => {
+      const id = 'REQ-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      const { error } = await supabase.from('requests').insert([{
+          ...requestData,
+          id
+      }]);
+      if (error) throw error;
+      await StorageService.fetchRemoteData();
+  },
+
+  // Fix: Added removeRequest method
+  removeRequest: async (id: string) => {
+      const { error } = await supabase.from('requests').delete().eq('id', id);
+      if (error) throw error;
+      await StorageService.fetchRemoteData();
+  },
+
+  // Fix: Added approveRequest method
+  approveRequest: async (req: Request) => {
+      if (req.type === 'ENTRY' && req.details) {
+          const driverId = 'DRV-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+          const { error: driverError } = await supabase.from('drivers').insert([{
+              id: driverId,
+              name: req.name,
+              email: req.details.email.toLowerCase().trim(),
+              password: req.details.password,
+              company_id: req.details.companyId,
+              company_name: req.details.companyName,
+              avatar: req.avatar,
+              role_id: 'role-driver',
+              status: 'Ativo',
+              distance: 0,
+              rank: 0
+          }]);
+          if (driverError) throw driverError;
+      }
+      await StorageService.removeRequest(req.id);
+  },
+
+  // Fix: Added sendContractProposal method
+  sendContractProposal: async (target: Company, split: number) => {
+      await StorageService.addRequest({
+          name: internalData.companyName,
+          avatar: internalData.companyLogo || '',
+          message: `Proposta de Contrato B2B: Divisão de ${split}%/${100-split}%`,
+          type: 'CONTRACT_PROPOSAL',
+          timestamp: new Date().toISOString(),
+          targetId: target.id,
+          fromId: internalData.currentUserEmail,
+          details: { split, fromCompany: internalData.companyName }
+      });
+  },
+
+  // Fix: Added addRole method
+  addRole: async (roleData: Omit<Role, 'id'>) => {
+      const id = 'ROL-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      const { error } = await supabase.from('roles').insert([{
+          ...roleData,
+          id
+      }]);
+      if (error) throw error;
+      await StorageService.fetchRemoteData();
+  },
+
+  // Fix: Added updateRole method
+  updateRole: async (id: string, updates: Partial<Role>) => {
+      const { error } = await supabase.from('roles').update(updates).eq('id', id);
+      if (error) throw error;
+      await StorageService.fetchRemoteData();
+  },
+
+  // Fix: Added deleteRole method
+  deleteRole: async (id: string) => {
+      const { error } = await supabase.from('roles').delete().eq('id', id);
+      if (error) throw error;
+      await StorageService.fetchRemoteData();
+  },
+
+  // Fix: Added assignRole method
+  assignRole: async (driverId: string, roleId: string) => {
+      const { error } = await supabase.from('drivers').update({ role_id: roleId }).eq('id', driverId);
+      if (error) throw error;
+      await StorageService.fetchRemoteData();
+  },
+
+  saveData: (updates: Partial<AppData>): AppData => {
+    internalData = { ...internalData, ...updates };
+    const sync = async () => {
+      if (updates.ownerName || updates.ownerPhoto) {
+        await supabase.from('drivers').update({
+          name: updates.ownerName || internalData.ownerName,
+          avatar: updates.ownerPhoto || internalData.ownerPhoto
+        }).eq('email', internalData.currentUserEmail);
+      }
+      await StorageService.fetchRemoteData();
     };
-    StorageService.saveData({ dbLogs: [newLog, ...data.dbLogs].slice(0, 50) });
+    sync();
+    StorageService.notify();
+    return internalData;
   },
 
-  createCompany: (companyData: Omit<Company, 'id'>) => {
-    const data = StorageService.getData();
-    const newCompany: Company = {
-      id: Date.now().toString(),
-      ...companyData
-    };
-    StorageService.saveData({ dbCompanies: [...data.dbCompanies, newCompany] });
-    StorageService.addLog('Empresa Criada', `Nova organização ${companyData.name} registrada.`, 'INFO');
-    return newCompany;
+  hasPermission: (permission: Permission): boolean => {
+      if (!internalData.currentUserEmail) return false;
+      const emailLower = internalData.currentUserEmail.toLowerCase().trim();
+      if (emailLower === 'ceoctsvirtual@gmail.com') return true;
+      const driver = internalData.dbDrivers.find(d => d.email.toLowerCase() === emailLower);
+      if (!driver) return false;
+      const role = internalData.dbRoles.find(r => r.id === driver.roleId);
+      if (role && role.permissions.includes(permission)) return true;
+      return driver.roleId === 'role-owner' || false;
   },
 
-  updateCompany: (id: string, updates: Partial<Company>) => {
-    const data = StorageService.getData();
-    const newCompanies = data.dbCompanies.map(c => c.id === id ? { ...c, ...updates } : c);
-    StorageService.saveData({ dbCompanies: newCompanies });
-    StorageService.addLog('Empresa Editada', `Dados da empresa ID ${id} atualizados.`, 'INFO');
-    return newCompanies;
-  },
-
-  deleteCompany: (id: string) => {
-    const data = StorageService.getData();
-    const company = data.dbCompanies.find(c => c.id === id);
-    const newCompanies = data.dbCompanies.filter(c => c.id !== id);
-    const newDrivers = data.dbDrivers.filter(d => d.companyId !== id);
-    
-    StorageService.saveData({ dbCompanies: newCompanies, dbDrivers: newDrivers });
-    StorageService.addLog('Empresa Excluída', `Empresa ${company?.name} removida.`, 'DANGER');
-    return newCompanies;
-  },
-
-  updateDriver: (id: string, updates: Partial<Driver>) => {
-      const data = StorageService.getData();
-      const newDrivers = data.dbDrivers.map(d => d.id === id ? { ...d, ...updates } : d);
-      StorageService.saveData({ dbDrivers: newDrivers });
-      StorageService.addLog('Motorista Editado', `Dados do motorista ID ${id} atualizados.`, 'INFO');
-      return newDrivers;
-  },
-
-  deleteDriver: (id: string) => {
-    const data = StorageService.getData();
-    const driver = data.dbDrivers.find(d => d.id === id);
-    const newDrivers = data.dbDrivers.filter(d => d.id !== id);
-    StorageService.saveData({ dbDrivers: newDrivers });
-    StorageService.addLog('Motorista Removido', `Motorista ${driver?.name} removido.`, 'WARNING');
-    return newDrivers;
-  },
-
-  updateDriverRole: (driverId: string, roleName: string) => {
-    const data = StorageService.getData();
-    const driver = data.dbDrivers.find(d => d.id === driverId);
-    if (!driver) return;
-
-    const newDrivers = data.dbDrivers.map(d => 
-        d.id === driverId ? { ...d, role: roleName } : d
-    );
-    
-    StorageService.saveData({ dbDrivers: newDrivers });
-    StorageService.addLog('Cargo Alterado', `Motorista ${driver.name} agora é ${roleName}.`, 'INFO');
-    return newDrivers;
-  },
-
-  addRole: (name: string, color: string, companyId?: string) => {
-    const data = StorageService.getData();
-    const newRole: Role = {
-      id: Date.now().toString(),
-      name,
-      color,
-      permissions: [],
-      companyId: companyId
-    };
-    StorageService.saveData({ dbRoles: [...data.dbRoles, newRole] });
-    StorageService.addLog('Cargo Criado', `Novo cargo ${name} adicionado.`, 'INFO');
-    return [...data.dbRoles, newRole];
-  },
-
-  deleteRole: (id: string) => {
-     const data = StorageService.getData();
-     const newRoles = data.dbRoles.filter(r => r.id !== id);
-     StorageService.saveData({ dbRoles: newRoles });
-     StorageService.addLog('Cargo Removido', `Cargo ID ${id} removido.`, 'WARNING');
-     return newRoles;
-  },
-
-  addTrip: (tripData: Omit<Trip, 'id'>) => {
-      const data = StorageService.getData();
-      const newTrip: Trip = {
-          id: Date.now().toString(),
-          ...tripData
-      };
-      StorageService.saveData({ dbTrips: [newTrip, ...data.dbTrips] });
-      StorageService.addLog('Nova Viagem', `Viagem de ${tripData.origin} para ${tripData.destination} registrada.`, 'INFO');
-      return newTrip;
-  },
-
-  removeRequest: (id: string) => {
-      const data = StorageService.getData();
-      const newRequests = data.dbRequests.filter(r => r.id !== id);
-      StorageService.saveData({ dbRequests: newRequests });
-      return newRequests;
-  },
-
-  addRequest: (request: Omit<Request, 'id'>) => {
-      const data = StorageService.getData();
-      const newReq: Request = {
-          id: Date.now().toString(),
-          ...request
-      };
-      StorageService.saveData({ dbRequests: [newReq, ...data.dbRequests] });
-      // Don't log if it's the simulation, already logged there
-  },
-
-  fileToBase64: (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
+  calculateDistance: (origin: string, dest: string): number => (origin.length + dest.length) * 45,
+  getCargoWeight: (cargo: string): number | undefined => (LOGISTICS_DB.CARGO_WEIGHTS as Record<string, number>)[cargo],
+  fileToBase64: (file: File): Promise<string> => new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = () => resolve(reader.result as string);
       reader.onerror = error => reject(error);
-    });
-  }
+  }),
+  checkMonthlyReset: () => {}
+};
+
+export const LOGISTICS_DB = {
+    CITIES: ['São Paulo', 'Rio de Janeiro', 'Curitiba', 'Berlin', 'Paris', 'London', 'Madrid', 'Roma'],
+    CARGO_WEIGHTS: { 'Eletrônicos': 12, 'Maquinário': 25, 'Alimentos': 18, 'Químicos': 22, 'Veículos': 30 }
 };

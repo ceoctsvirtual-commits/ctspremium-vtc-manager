@@ -14,17 +14,17 @@ export const Intro: React.FC<Props> = ({ onNavigate }) => {
   };
 
   const handleCategorySelect = (type: 'COMPANY' | 'GROUP' | 'AUTONOMOUS' | 'DRIVER') => {
-    // Save the intent to local storage or state to customize the registration screen
     sessionStorage.setItem('registrationType', type);
-    
     setShowRegisterSelect(false);
-
     if (type === 'DRIVER') {
         onNavigate(ScreenName.REGISTER_DRIVER);
     } else {
         onNavigate(ScreenName.REGISTER_COMPANY);
     }
   };
+
+  // URL da logo oficial fornecida pelo usuário
+  const OFFICIAL_LOGO = "https://i.postimg.cc/GmPhKZLG/Whats-App-Image-2025-12-22-at-10-32-42.jpg";
 
   return (
     <div className="relative flex h-screen w-full flex-col justify-between overflow-hidden bg-background-dark font-display">
@@ -40,12 +40,12 @@ export const Intro: React.FC<Props> = ({ onNavigate }) => {
 
       <div className="relative z-10 w-full px-6 pt-12 flex justify-between items-start">
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-primary shadow-lg shadow-primary/40 backdrop-blur-sm border border-white/10">
-            <span className="material-symbols-outlined text-white text-[28px]">local_shipping</span>
+          <div className="flex items-center justify-center w-14 h-14 rounded-full overflow-hidden shadow-2xl shadow-black/50 border border-white/20 bg-white/5 backdrop-blur-sm p-0.5">
+            <img src={OFFICIAL_LOGO} alt="Legalizadora CTS" className="w-full h-full object-cover rounded-full" />
           </div>
-          <div>
-            <h2 className="text-white font-bold text-lg leading-tight tracking-tight">CTSPREMIUM</h2>
-            <p className="text-gray-400 text-xs font-medium tracking-wide uppercase">Global Systems</p>
+          <div className="flex flex-col justify-center">
+            <h2 className="text-white font-black text-xl leading-none tracking-tight">CTSPREMIUM</h2>
+            <p className="text-blue-400 text-[10px] font-black tracking-[0.15em] uppercase mt-1">Global Systems</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-dark/80 backdrop-blur-md border border-white/5 shadow-sm">
@@ -93,7 +93,6 @@ export const Intro: React.FC<Props> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* Category Selection Modal */}
       {showRegisterSelect && (
         <div className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
           <div className="w-full max-w-sm bg-surface-card rounded-2xl border border-gray-700 p-6 shadow-2xl slide-in-from-bottom duration-300 max-h-[80vh] overflow-y-auto">

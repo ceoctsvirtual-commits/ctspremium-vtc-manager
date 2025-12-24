@@ -1,187 +1,183 @@
 
-import React, { useState } from 'react';
-import { ScreenName } from '../types';
+import React, { useState, useEffect } from 'react';
+import { ScreenName, VehicleType } from '../types';
+import { StorageService, AppData } from '../utils/storage';
 
 interface Props {
   onNavigate: (screen: ScreenName) => void;
 }
 
 export const DriverID: React.FC<Props> = ({ onNavigate }) => {
+  const [data, setData] = useState<AppData>(StorageService.getData());
   const [downloading, setDownloading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
 
-  const handleDownload = () => {
-    setDownloading(true);
-    setTimeout(() => {
-        setDownloading(false);
-        setDownloaded(true);
-        setTimeout(() => setDownloaded(false), 3000);
-    }, 1500);
+  useEffect(() => {
+    setData(StorageService.getData());
+  }, []);
+
+  const getCategory = (v: VehicleType): string => {
+      switch(v) {
+          case 'CAR': return 'B';
+          case 'LIGHT_TRUCK': return 'C';
+          case 'BUS': return 'D';
+          case 'TRUCK': return 'D';
+          case 'BITRUCK': return 'D';
+          case 'RODOTREM': return 'E';
+          default: return 'AE';
+      }
   };
 
-  const handleShare = async () => {
-    if (navigator.share) {
-        try {
-            await navigator.share({
-                title: 'Habilitação Digital VTC',
-                text: 'Confira minha habilitação virtual do sistema CTS PREMIUM.',
-                url: window.location.href,
-            });
-        } catch (error) {
-            console.log('Error sharing', error);
-        }
-    } else {
-        alert("Link copiado para a área de transferência!");
-    }
+  const getVehicleLabel = (v: VehicleType): string => {
+      switch(v) {
+          case 'CAR': return 'Automóvel';
+          case 'LIGHT_TRUCK': return 'VUC';
+          case 'BUS': return 'Ônibus';
+          case 'TRUCK': return 'Truck';
+          case 'BITRUCK': return 'Bi-Truck';
+          case 'RODOTREM': return 'Rodotrem';
+          default: return 'Especial';
+      }
   };
 
   return (
     <div className="bg-background-dark font-display text-white min-h-screen flex flex-col antialiased">
-      <header className="sticky top-0 z-20 bg-background-dark/90 backdrop-blur-md border-b border-gray-800 safe-area-top">
+      <header className="sticky top-0 z-20 bg-background-dark/95 backdrop-blur-md border-b border-white/5 safe-area-top">
         <div className="flex items-center justify-between p-4 h-16 max-w-lg mx-auto w-full">
           <button onClick={() => onNavigate(ScreenName.PROFILE)} className="flex items-center justify-center size-10 rounded-full hover:bg-gray-800 text-white transition-colors">
             <span className="material-symbols-outlined text-2xl">close</span>
           </button>
-          <h1 className="text-base font-bold text-center flex-1 text-white uppercase tracking-wide">
+          <h1 className="text-sm font-black text-center flex-1 text-white uppercase tracking-widest">
             Habilitação Digital
           </h1>
-          <button onClick={handleShare} className="flex items-center justify-center size-10 rounded-full hover:bg-gray-800 text-primary transition-colors">
+          <button className="flex items-center justify-center size-10 rounded-full hover:bg-gray-800 text-primary transition-colors">
             <span className="material-symbols-outlined text-2xl">share</span>
           </button>
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col items-center w-full px-4 pt-6 pb-24 max-w-lg mx-auto">
-        <div className="w-full relative mb-8 group perspective-1000">
-          <div className="relative w-full aspect-[1.586/1] bg-surface-card rounded-xl shadow-xl overflow-hidden border border-gray-700 ring-1 ring-white/5 transition-transform">
-            <div className="absolute inset-0 pointer-events-none z-0" style={{ 
-              backgroundImage: 'radial-gradient(circle at 100% 100%, rgba(19, 91, 236, 0.1) 0%, transparent 50%), radial-gradient(circle at 0% 0%, rgba(19, 91, 236, 0.1) 0%, transparent 50%), repeating-linear-gradient(45deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 10px)' 
+      <main className="flex-1 flex flex-col items-center w-full px-4 pt-4 pb-24 max-w-lg mx-auto overflow-y-auto">
+        <div className="w-full relative mb-10 group px-2">
+          {/* HOLOGRAM CARD - Aspect ratio 1.85:1 para um retângulo mais profissional */}
+          <div className="relative w-full aspect-[1.85/1] bg-[#0f172a] rounded-[2rem] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] overflow-hidden border border-white/10 transition-transform ring-1 ring-white/5">
+            {/* Holographic Texture */}
+            <div className="absolute inset-0 z-0 opacity-[0.03]" style={{ 
+              backgroundImage: 'repeating-linear-gradient(45deg, #fff 0px, #fff 1px, transparent 1px, transparent 8px)' 
             }}></div>
             
-            <div className="absolute top-0 w-full h-10 bg-primary flex items-center justify-between px-4 z-10 shadow-sm">
+            <div className="absolute top-0 w-full h-8 bg-primary flex items-center justify-between px-6 z-10 shadow-lg border-b border-white/10">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-white text-[18px]">local_shipping</span>
-                <span className="text-[10px] font-bold text-white tracking-widest uppercase opacity-90">República Virtual</span>
+                <span className="material-symbols-outlined text-white text-[14px] font-black">verified</span>
+                <span className="text-[7px] font-black text-white tracking-[0.3em] uppercase">REPÚBLICA VIRTUAL CTS</span>
               </div>
-              <span className="text-[10px] font-bold text-white/80 uppercase">Válida em todo território simulado</span>
+              <div className="text-[6px] font-black text-white/50 uppercase tracking-[0.4em]">ID: {data.companyTag || 'CTS'}-{Math.floor(Math.random()*900)}</div>
             </div>
 
-            <div className="absolute inset-0 pt-12 px-4 pb-4 flex gap-4 z-10">
-              <div className="w-[32%] flex flex-col gap-2 h-full">
-                <div className="relative w-full aspect-[3/4] bg-gray-800 rounded-lg overflow-hidden border border-gray-600 shadow-inner">
-                  <img alt="Portrait" className="w-full h-full object-cover grayscale contrast-125" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAZ0gdu6f8Dx-7boDv3YEhhdpxA8Bg4r4JITo9bWUyo1Keivx-hcgdZYSXA5-uV0oeshqBQLS34K7Urq43FSqIfenCzvalRkmRjcgmIAbwV1mWtcsuJFaPaq65_cyw75bqVOu3IP_MQ7Bj9Q57XMigg4WXZnJmfgJzZ22jgvrrUsACSFCLYyxrLZihYKeEUuGDXLxn9ecp32KwOJSLwrfwdYKA-LQmKHS-RCwtK_lLpyPKKmpsdPaCGk67piz0HqDMl_JidB1Pn2Yg"/>
-                  <div className="absolute bottom-0 w-full h-1/4 bg-gradient-to-t from-black/50 to-transparent"></div>
+            <div className="absolute inset-0 pt-10 px-6 pb-4 flex gap-6 z-10">
+              <div className="w-[32%] flex flex-col justify-center">
+                {/* FOTO PERFEITAMENTE QUADRADA 1:1 */}
+                <div className="relative w-full aspect-square bg-slate-900 rounded-2xl overflow-hidden border border-white/10 shadow-2xl ring-1 ring-white/10">
+                  <img 
+                    alt="Driver Portrait" 
+                    className="w-full h-full object-cover grayscale contrast-125 brightness-110" 
+                    src={data.ownerPhoto || "https://i.postimg.cc/GmPhKZLG/Whats-App-Image-2025-12-22-at-10-32-42.jpg"}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
                 </div>
               </div>
 
               <div className="flex-1 flex flex-col justify-between py-1">
                 <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-[10px] text-gray-400 uppercase font-medium tracking-wide leading-none mb-1">Nome do Condutor</h3>
-                    <p className="text-sm sm:text-base font-bold text-white leading-tight break-words">JOÃO DA SILVA<br/>SANTOS JUNIOR</p>
+                  <div className="flex-1 min-w-0 pr-2">
+                    <h3 className="text-[6px] text-gray-500 uppercase font-black tracking-[0.2em] mb-0.5">NOME DO CONDUTOR</h3>
+                    <p className="text-[11px] font-black text-white leading-tight uppercase truncate drop-shadow-md">
+                      {data.ownerName || "USUÁRIO CTS"}
+                    </p>
                   </div>
-                  <div className="flex flex-col items-center justify-center bg-gray-800/50 rounded p-1 border border-gray-700">
-                    <span className="material-symbols-outlined text-primary text-xl">qr_code_2</span>
+                  <span className="material-symbols-outlined text-primary text-2xl drop-shadow-[0_0_8px_rgba(19,91,236,0.3)]">qr_code_2</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="text-[5px] text-gray-500 uppercase font-black tracking-[0.2em] mb-0.5">REGISTRO GERAL</h3>
+                    <p className="text-[9px] font-bold text-slate-300 tabular-nums">
+                      {data.companyTag || 'CTS'} 2025 {Math.floor(1000 + Math.random() * 9000)}
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="text-[5px] text-gray-500 uppercase font-black tracking-[0.2em] mb-0.5">CAT.</h3>
+                    <p className="text-lg font-black text-primary leading-none tracking-tighter">
+                      {getCategory(data.vehicleType)}
+                    </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 mt-1">
-                  <div>
-                    <h3 className="text-[9px] text-gray-400 uppercase font-medium leading-none mb-0.5">Nº Registro</h3>
-                    <p className="text-xs font-semibold text-slate-200 tabular-nums">001987654321</p>
-                  </div>
-                  <div>
-                    <h3 className="text-[9px] text-gray-400 uppercase font-medium leading-none mb-0.5">Validade</h3>
-                    <p className="text-xs font-semibold text-red-400 tabular-nums">15/07/2028</p>
-                  </div>
-                </div>
-
-                <div className="mt-auto flex items-end justify-between border-t border-dashed border-gray-700 pt-2">
-                  <div>
-                    <h3 className="text-[9px] text-gray-400 uppercase font-medium leading-none mb-1">Empresa</h3>
-                    <p className="text-xs font-semibold text-slate-300">VTC Logistics Global</p>
+                <div className="mt-auto flex items-end justify-between border-t border-white/5 pt-2">
+                  <div className="flex-1">
+                    <h3 className="text-[5px] text-gray-500 uppercase font-black tracking-[0.2em] mb-0.5">VTC ATIVA</h3>
+                    <p className="text-[8px] font-black text-white uppercase truncate">
+                        {data.companyName}
+                    </p>
                   </div>
                   <div className="text-right">
-                    <h3 className="text-[9px] text-gray-400 uppercase font-medium leading-none mb-0.5">Cat. Hab.</h3>
-                    <p className="text-2xl font-black text-white leading-none tracking-tighter">AE</p>
+                    <h3 className="text-[5px] text-gray-500 uppercase font-black tracking-[0.2em] mb-0.5">VALIDADE</h3>
+                    <p className="text-[8px] font-black text-red-500 tabular-nums">22/12/2030</p>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          <div className="absolute -bottom-4 left-4 right-4 h-4 bg-black/40 blur-xl rounded-[50%] z-[-1]"></div>
         </div>
 
-        <div className="w-full space-y-6">
-          <div className="px-2">
-            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary text-lg">info</span>
-              Detalhes do Condutor
+        <div className="w-full space-y-6 px-2">
+          <div>
+            <h3 className="text-[10px] font-black text-gray-600 mb-3 flex items-center gap-2 uppercase tracking-[0.4em]">
+              <span className="material-symbols-outlined text-primary text-base">verified</span>
+              Status Operacional
             </h3>
-            <div className="divide-y divide-gray-800 rounded-lg bg-surface-card border border-gray-800 overflow-hidden shadow-sm">
-              <div className="flex justify-between gap-x-6 px-4 py-3 hover:bg-white/5 transition-colors">
-                <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-gray-400 text-xl">event</span>
-                  <p className="text-slate-400 text-sm font-normal">Primeira Habilitação</p>
-                </div>
-                <p className="text-slate-200 text-sm font-medium text-right tabular-nums">22/05/2019</p>
+            <div className="divide-y divide-white/5 rounded-[2.5rem] bg-surface-card border border-white/5 overflow-hidden shadow-2xl">
+              <div className="flex justify-between items-center px-8 py-5">
+                <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Login Administrativo</p>
+                <p className="text-slate-300 text-[10px] font-medium lowercase">{data.ownerEmail}</p>
               </div>
-              <div className="flex justify-between gap-x-6 px-4 py-3 hover:bg-white/5 transition-colors">
-                <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-gray-400 text-xl">stars</span>
-                  <p className="text-slate-400 text-sm font-normal">Pontuação</p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="block size-2 rounded-full bg-green-500"></span>
-                  <p className="text-slate-200 text-sm font-medium text-right">0 Pontos (Regular)</p>
-                </div>
+              <div className="flex justify-between items-center px-8 py-5">
+                <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Distância Total</p>
+                <p className="text-primary text-sm font-black">
+                    {data.dbDrivers.find(d => d.email === data.ownerEmail)?.distance.toLocaleString() || 0} KM
+                </p>
               </div>
-              <div className="flex justify-between gap-x-6 px-4 py-3 hover:bg-white/5 transition-colors">
-                <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-gray-400 text-xl">workspace_premium</span>
-                  <p className="text-slate-400 text-sm font-normal">Observações</p>
+              <div className="flex justify-between items-center px-8 py-5">
+                <p className="text-gray-500 text-[10px] font-black uppercase tracking-widest">Licença</p>
+                <div className="flex items-center gap-2">
+                   <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                   <p className="text-emerald-500 text-[10px] font-black uppercase tracking-widest">Regularizado</p>
                 </div>
-                <p className="text-slate-200 text-sm font-medium text-right">EAR</p>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col items-center justify-center p-6 text-center">
-            <p className="text-xs text-slate-400 mb-2">Utilize o QR Code para validar este documento no sistema.</p>
-            <div className="size-12 opacity-30 text-white">
-              <span className="material-symbols-outlined text-5xl">qr_code</span>
+          <div className="flex flex-col items-center justify-center p-8 text-center bg-primary/5 rounded-[2.5rem] border border-primary/10">
+            <p className="text-[9px] text-gray-600 mb-5 font-black uppercase tracking-[0.5em]">CERTIFICAÇÃO CTS v2.5</p>
+            <div className="size-20 p-2.5 bg-white rounded-2xl shadow-xl">
+              <span className="material-symbols-outlined text-6xl text-black">qr_code_2</span>
             </div>
+            <p className="mt-6 text-[8px] text-gray-700 italic px-10 leading-relaxed text-center">Documento digital verificado para uso em simuladores e comboios oficiais.</p>
           </div>
         </div>
       </main>
 
-      <div className="fixed bottom-0 left-0 w-full z-20">
-        <div className="absolute bottom-full left-0 w-full h-8 bg-gradient-to-t from-background-dark to-transparent pointer-events-none"></div>
-        <div className="bg-background-dark border-t border-gray-800 p-4 pb-8 flex justify-center w-full">
+      <div className="fixed bottom-0 left-0 w-full z-20 bg-background-dark/95 backdrop-blur-xl border-t border-white/5 p-4 pb-8 flex justify-center shadow-2xl">
           <button 
-            onClick={handleDownload}
-            disabled={downloading}
-            className={`flex w-full max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-xl h-14 px-6 font-bold leading-normal tracking-wide shadow-lg transition-all transform active:scale-[0.98] ${
-                downloaded 
-                ? 'bg-green-600 text-white shadow-green-500/20' 
-                : 'bg-primary hover:bg-blue-600 active:bg-blue-700 text-white shadow-blue-500/20'
-            }`}
+            onClick={() => { setDownloading(true); setTimeout(() => { setDownloading(false); setDownloaded(true); }, 1500); }}
+            className={`w-full max-w-md h-16 rounded-2xl font-black uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-4 ${downloaded ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'bg-primary text-white shadow-xl shadow-primary/30'}`}
           >
-            {downloading ? (
-                 <span className="animate-spin material-symbols-outlined mr-3 text-2xl">progress_activity</span>
-            ) : downloaded ? (
+            {downloading ? <span className="animate-spin material-symbols-outlined">progress_activity</span> : (
                 <>
-                  <span className="material-symbols-outlined mr-3 text-2xl">check</span>
-                  <span className="truncate">Salvo na Galeria!</span>
-                </>
-            ) : (
-                <>
-                  <span className="material-symbols-outlined mr-3 text-2xl">download</span>
-                  <span className="truncate">Salvar na Galeria</span>
+                  <span className="material-symbols-outlined text-xl">{downloaded ? 'check_circle' : 'download'}</span>
+                  {downloaded ? 'Identidade Exportada' : 'Salvar Documento'}
                 </>
             )}
           </button>
-        </div>
       </div>
     </div>
   );
