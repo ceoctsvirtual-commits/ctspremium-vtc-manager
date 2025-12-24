@@ -1,6 +1,6 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Company, Driver, Role, SystemLog, Trip, Request, MonthlyBackup, Permission, VehicleType } from '../types';
+import { Company, Driver, Role, SystemLog, Trip, Request, MonthlyBackup, Permission, VehicleType } from '../types.ts';
 
 export interface AppSettings {
   notifications: boolean;
@@ -138,12 +138,24 @@ export const StorageService = {
       results.forEach((res, i) => {
         if (res.status === 'fulfilled' && res.value.data) {
           const data = res.value.data;
-          if (i === 0) internalData.dbCompanies = data.map((c: any) => ({ ...c, ownerEmail: c.owner_email, ownerName: c.owner_name, ownerPhoto: c.owner_photo }));
+          if (i === 0) internalData.dbCompanies = data.map((c: any) => ({ 
+            id: c.id, 
+            name: c.name, 
+            tag: c.tag, 
+            logo: c.logo, 
+            banner: c.banner, 
+            ownerEmail: c.owner_email, 
+            ownerName: c.owner_name, 
+            ownerPhoto: c.owner_photo,
+            type: c.type,
+            platforms: c.platforms || [],
+            segment: c.segment,
+            isGroup: c.is_group
+          }));
           if (i === 1) internalData.dbDrivers = data.map((d: any) => ({ ...d, companyId: d.company_id, companyName: d.company_name, roleId: d.role_id }));
           if (i === 2) internalData.dbTrips = data.map((t: any) => ({ ...t, driverName: t.driver_name, driverAvatar: t.driver_avatar }));
           if (i === 3) internalData.dbRequests = data;
           if (i === 4) internalData.dbRoles = data;
-          // Fix: Mapping user_email database column to user property in UI
           if (i === 5) internalData.dbLogs = data.map((l: any) => ({ ...l, user: l.user_email }));
         }
       });
@@ -160,6 +172,8 @@ export const StorageService = {
                   internalData.companyName = myComp.name;
                   internalData.companyTag = myComp.tag;
                   internalData.companyLogo = myComp.logo || SYSTEM_LOGO;
+                  internalData.companyBanner = myComp.banner;
+                  internalData.organizationType = myComp.type;
               }
           }
       }
@@ -189,7 +203,6 @@ export const StorageService = {
     StorageService.notify();
   },
 
-  // Fix: Added missing createCompany method
   createCompany: async (c: any) => {
     const companyId = 'CMP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
     const driverId = 'DRV-' + Math.random().toString(36).substr(2, 9).toUpperCase();
@@ -241,20 +254,17 @@ export const StorageService = {
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added missing addRequest method
   addRequest: async (req: any) => {
       const id = 'REQ-' + Math.random().toString(36).substr(2, 9).toUpperCase();
       await supabase.from('requests').insert([{ ...req, id }]);
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added missing removeRequest method
   removeRequest: async (id: string) => {
       await supabase.from('requests').delete().eq('id', id);
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added missing approveRequest method
   approveRequest: async (req: Request) => {
       if (req.type === 'ENTRY' && req.details) {
         const details = req.details;
@@ -277,7 +287,6 @@ export const StorageService = {
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added missing sendContractProposal method
   sendContractProposal: async (target: Company, split: number) => {
       const id = 'REQ-' + Math.random().toString(36).substr(2, 9).toUpperCase();
       const me = internalData.dbDrivers.find(d => d.email === internalData.currentUserEmail);
@@ -295,32 +304,27 @@ export const StorageService = {
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added missing addRole method
   addRole: async (role: any) => {
       const id = 'ROL-' + Math.random().toString(36).substr(2, 9).toUpperCase();
       await supabase.from('roles').insert([{ ...role, id }]);
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added missing updateRole method
   updateRole: async (id: string, updates: any) => {
       await supabase.from('roles').update(updates).eq('id', id);
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added missing deleteRole method
   deleteRole: async (id: string) => {
       await supabase.from('roles').delete().eq('id', id);
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added missing assignRole method
   assignRole: async (driverId: string, roleId: string) => {
       await supabase.from('drivers').update({ role_id: roleId }).eq('id', driverId);
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added missing addLog method
   addLog: async (action: string, details: string, type: 'INFO' | 'WARNING' | 'DANGER') => {
       const id = 'LOG-' + Math.random().toString(36).substr(2, 9).toUpperCase();
       await supabase.from('logs').insert([{

@@ -1,25 +1,25 @@
 
 import React, { useState, useEffect } from 'react';
-import { ScreenName } from './types';
-import { Intro } from './screens/Intro';
-import { Login } from './screens/Login';
-import { Dashboard } from './screens/Dashboard';
-import { Profile } from './screens/Profile';
-import { EditProfile } from './screens/EditProfile';
-import { History } from './screens/History';
-import { Rankings } from './screens/Rankings';
-import { Map } from './screens/Map';
-import { DriverID } from './screens/DriverID';
-import { Calculator } from './screens/Calculator';
-import { TripDetails } from './screens/TripDetails';
-import { RegisterCompany } from './screens/RegisterCompany';
-import { RegisterDriver } from './screens/RegisterDriver';
-import { Requests } from './screens/Requests';
-import { Settings } from './screens/Settings';
-import { AddTrip } from './screens/AddTrip';
-import { ChangePassword } from './screens/ChangePassword';
-import { AdminPanel } from './screens/AdminPanel';
-import { StorageService, AppData } from './utils/storage';
+import { ScreenName } from './types.ts';
+import { Intro } from './screens/Intro.tsx';
+import { Login } from './screens/Login.tsx';
+import { Dashboard } from './screens/Dashboard.tsx';
+import { Profile } from './screens/Profile.tsx';
+import { EditProfile } from './screens/EditProfile.tsx';
+import { History } from './screens/History.tsx';
+import { Rankings } from './screens/Rankings.tsx';
+import { Map } from './screens/Map.tsx';
+import { DriverID } from './screens/DriverID.tsx';
+import { Calculator } from './screens/Calculator.tsx';
+import { TripDetails } from './screens/TripDetails.tsx';
+import { RegisterCompany } from './screens/RegisterCompany.tsx';
+import { RegisterDriver } from './screens/RegisterDriver.tsx';
+import { Requests } from './screens/Requests.tsx';
+import { Settings } from './screens/Settings.tsx';
+import { AddTrip } from './screens/AddTrip.tsx';
+import { ChangePassword } from './screens/ChangePassword.tsx';
+import { AdminPanel } from './screens/AdminPanel.tsx';
+import { StorageService, AppData } from './utils/storage.ts';
 
 const App: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<ScreenName>(ScreenName.INTRO);
@@ -36,8 +36,11 @@ const App: React.FC = () => {
         setShowSkip(false);
         setSyncMessage("Sincronizando Banco...");
         
-        // Se em 3 segundos não conectar, permite pular a tela azul
-        skipTimer = window.setTimeout(() => setShowSkip(true), 3000);
+        // Garantia: Se em 3 segundos o banco não responder, mostra o botão de pular
+        skipTimer = window.setTimeout(() => {
+            setShowSkip(true);
+            setSyncMessage("Conexão Lenta...");
+        }, 3000);
 
         try {
             // Tenta carregar dados do banco mas não trava se falhar
@@ -52,7 +55,7 @@ const App: React.FC = () => {
                 document.documentElement.classList.add('dark');
             }
 
-            // Decide para onde ir
+            // Decide para onde ir baseado no login salvo
             if (data.currentUserEmail) {
                 setCurrentScreen(ScreenName.DASHBOARD);
             } else {
@@ -64,10 +67,12 @@ const App: React.FC = () => {
                 }
             }
         } catch (err) {
-            console.warn("Iniciando em modo de contingência.");
+            console.error("Erro no boot:", err);
+            setSyncMessage("Modo Offline");
         } finally {
             clearTimeout(skipTimer);
-            setLoading(false);
+            // Pequeno delay para suavizar a transição
+            setTimeout(() => setLoading(false), 500);
         }
     };
 
@@ -84,7 +89,11 @@ const App: React.FC = () => {
 
   const handleSkip = () => {
       setLoading(false);
-      if (appData.currentUserEmail) setCurrentScreen(ScreenName.DASHBOARD);
+      if (appData.currentUserEmail) {
+          setCurrentScreen(ScreenName.DASHBOARD);
+      } else {
+          setCurrentScreen(ScreenName.INTRO);
+      }
   };
 
   const renderScreen = () => {
@@ -115,7 +124,7 @@ const App: React.FC = () => {
 
   if (loading) {
       return (
-          <div className="flex h-screen w-full flex-col items-center justify-center bg-background-dark p-10">
+          <div className="flex h-screen w-full flex-col items-center justify-center bg-background-dark p-10 animate-in fade-in duration-500">
               <div className="flex flex-col items-center gap-6">
                   <div className="relative">
                     <div className="size-24 rounded-full border-4 border-primary/10 border-t-primary animate-spin"></div>
@@ -133,7 +142,7 @@ const App: React.FC = () => {
                         onClick={handleSkip}
                         className="mt-6 px-8 py-3 bg-surface-card border border-white/5 rounded-2xl text-[9px] font-black text-gray-500 uppercase tracking-widest hover:text-white transition-all active:scale-95 animate-in fade-in"
                       >
-                        Entrar mesmo sem sinal
+                        Pular e Entrar no App
                       </button>
                   )}
               </div>
@@ -147,7 +156,7 @@ const App: React.FC = () => {
           <div className="fixed top-0 left-0 w-full z-[100] bg-amber-600 text-white text-[9px] font-black py-2.5 px-4 flex items-center justify-between shadow-2xl uppercase tracking-widest">
               <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined text-sm">cloud_off</span>
-                  <span>Modo Contingência Ativado</span>
+                  <span>Sincronização Limitada</span>
               </div>
               <button onClick={() => StorageService.setError(null)} className="material-symbols-outlined text-sm">close</button>
           </div>
