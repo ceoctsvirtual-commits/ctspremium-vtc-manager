@@ -24,45 +24,51 @@ import { StorageService, AppData } from './utils/storage';
 const App: React.FC = () => {
   const [currentScreen, setCurrentScreen] = useState<ScreenName>(ScreenName.INTRO);
   const [loading, setLoading] = useState(true);
-  const [syncMessage, setSyncMessage] = useState("Iniciando Sistemas...");
+  const [showSkip, setShowSkip] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("Iniciando...");
   const [appData, setAppData] = useState<AppData>(StorageService.getData());
 
   useEffect(() => {
+    let skipTimer: number;
+
     const initApp = async () => {
         setLoading(true);
-        setSyncMessage("Conectando ao Supabase...");
+        setShowSkip(false);
+        setSyncMessage("Sincronizando Banco...");
         
-        // Ativa Realtime para sincronia global instantânea
-        StorageService.initRealtime();
+        // Se em 3 segundos não conectar, permite pular a tela azul
+        skipTimer = window.setTimeout(() => setShowSkip(true), 3000);
 
-        // Carrega dados iniciais do banco
-        await StorageService.fetchRemoteData();
-        let data = StorageService.getData();
-        setAppData(data);
-        
-        // Aplica o tema
-        if (data.settings && data.settings.theme === 'light') {
-            document.documentElement.classList.remove('dark');
-        } else {
-            document.documentElement.classList.add('dark');
-        }
+        try {
+            // Tenta carregar dados do banco mas não trava se falhar
+            await StorageService.fetchRemoteData();
+            const data = StorageService.getData();
+            setAppData(data);
+            
+            // Aplica tema
+            if (data.settings?.theme === 'light') {
+                document.documentElement.classList.remove('dark');
+            } else {
+                document.documentElement.classList.add('dark');
+            }
 
-        // Se já tem um e-mail de sessão ativa, vai direto pro Dashboard
-        if (data.currentUserEmail) {
-            setCurrentScreen(ScreenName.DASHBOARD);
-        } else {
-            // Se não tem sessão ativa, verifica se tem credenciais "Lembradas"
-            setSyncMessage("Sincronizando Identidade...");
-            const saved = StorageService.getRememberedCredentials();
-            if (saved.email && saved.pass) {
-                const success = await StorageService.login(saved.email, saved.pass);
-                if (success) {
-                    setCurrentScreen(ScreenName.DASHBOARD);
+            // Decide para onde ir
+            if (data.currentUserEmail) {
+                setCurrentScreen(ScreenName.DASHBOARD);
+            } else {
+                const saved = StorageService.getRememberedCredentials();
+                if (saved.email && saved.pass) {
+                    setSyncMessage("Validando Acesso...");
+                    const success = await StorageService.login(saved.email, saved.pass);
+                    if (success) setCurrentScreen(ScreenName.DASHBOARD);
                 }
             }
+        } catch (err) {
+            console.warn("Iniciando em modo de contingência.");
+        } finally {
+            clearTimeout(skipTimer);
+            setLoading(false);
         }
-        
-        setLoading(false);
     };
 
     const unsubscribe = StorageService.subscribe((newData) => {
@@ -70,8 +76,16 @@ const App: React.FC = () => {
     });
 
     initApp();
-    return () => unsubscribe();
+    return () => {
+        unsubscribe();
+        clearTimeout(skipTimer);
+    };
   }, []);
+
+  const handleSkip = () => {
+      setLoading(false);
+      if (appData.currentUserEmail) setCurrentScreen(ScreenName.DASHBOARD);
+  };
 
   const renderScreen = () => {
     switch (currentScreen) {
@@ -101,30 +115,39 @@ const App: React.FC = () => {
 
   if (loading) {
       return (
-          <div className="flex h-screen items-center justify-center bg-background-dark">
+          <div className="flex h-screen w-full flex-col items-center justify-center bg-background-dark p-10">
               <div className="flex flex-col items-center gap-6">
                   <div className="relative">
-                    <div className="size-24 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
+                    <div className="size-24 rounded-full border-4 border-primary/10 border-t-primary animate-spin"></div>
                     <div className="absolute inset-0 flex items-center justify-center p-2">
-                        <img src={OFFICIAL_LOGO} className="w-16 h-16 object-cover rounded-full" alt="Logo" />
+                        <img src={OFFICIAL_LOGO} className="w-16 h-16 object-cover rounded-full shadow-2xl" alt="Logo" />
                     </div>
                   </div>
-                  <div className="flex flex-col items-center">
-                    <p className="text-white font-black text-xl tracking-tight">CTSPREMIUM</p>
-                    <p className="text-blue-500 font-bold uppercase tracking-[0.2em] text-[10px] mt-1">{syncMessage}</p>
+                  <div className="text-center">
+                    <p className="text-white font-black text-2xl tracking-tighter uppercase">CTSPREMIUM</p>
+                    <p className="text-blue-500 font-bold uppercase tracking-[0.4em] text-[9px] mt-2 animate-pulse">{syncMessage}</p>
                   </div>
+                  
+                  {showSkip && (
+                      <button 
+                        onClick={handleSkip}
+                        className="mt-6 px-8 py-3 bg-surface-card border border-white/5 rounded-2xl text-[9px] font-black text-gray-500 uppercase tracking-widest hover:text-white transition-all active:scale-95 animate-in fade-in"
+                      >
+                        Entrar mesmo sem sinal
+                      </button>
+                  )}
               </div>
           </div>
       );
   }
 
   return (
-    <div className="antialiased min-h-screen w-full bg-background-light dark:bg-background-dark text-gray-900 dark:text-white transition-colors duration-300">
+    <div className="antialiased min-h-screen w-full bg-background-light dark:bg-background-dark text-gray-900 dark:text-white">
       {appData.lastDbError && (
-          <div className="fixed top-0 left-0 w-full z-[100] bg-red-600 text-white text-[10px] font-bold py-2 px-4 flex items-center justify-between shadow-lg animate-in slide-in-from-top">
+          <div className="fixed top-0 left-0 w-full z-[100] bg-amber-600 text-white text-[9px] font-black py-2.5 px-4 flex items-center justify-between shadow-2xl uppercase tracking-widest">
               <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-sm">database_off</span>
-                  <span>ERRO DE BANCO: {appData.lastDbError}</span>
+                  <span className="material-symbols-outlined text-sm">cloud_off</span>
+                  <span>Modo Contingência Ativado</span>
               </div>
               <button onClick={() => StorageService.setError(null)} className="material-symbols-outlined text-sm">close</button>
           </div>

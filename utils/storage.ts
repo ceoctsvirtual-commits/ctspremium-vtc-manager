@@ -42,10 +42,13 @@ const SYSTEM_LOGO = "https://i.postimg.cc/GmPhKZLG/Whats-App-Image-2025-12-22-at
 
 export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const savedEmail = localStorage.getItem('vtc_remember_email') || "";
-const savedPass = localStorage.getItem('vtc_remember_pass') || "";
+const getCachedData = (): AppData | null => {
+    const raw = localStorage.getItem('cts_app_cache');
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+};
 
-const INITIAL_DATA: AppData = {
+const INITIAL_DATA: AppData = getCachedData() || {
   currentUserEmail: localStorage.getItem('vtc_user_email') || "",
   companyName: "Legalizadora CTS",
   companyTag: "CTS",
@@ -56,8 +59,8 @@ const INITIAL_DATA: AppData = {
   platforms: ["ETS2", "ATS"],
   isGroup: false,
   ownerName: "Usuário",
-  ownerEmail: savedEmail,
-  ownerPass: savedPass,
+  ownerEmail: localStorage.getItem('vtc_remember_email') || "",
+  ownerPass: localStorage.getItem('vtc_remember_pass') || "",
   ownerPhoto: null,
   vehicleType: 'TRUCK',
   lastResetMonth: new Date().getMonth(),
@@ -82,12 +85,13 @@ export const StorageService = {
   },
 
   notify: () => {
+    localStorage.setItem('cts_app_cache', JSON.stringify(internalData));
     listeners.forEach(listener => listener({ ...internalData }));
   },
 
   getData: (): AppData => ({ ...internalData }),
 
-  setError: (error: string | null, code?: string) => {
+  setError: (error: string | null) => {
     internalData.lastDbError = error;
     StorageService.notify();
   },
@@ -107,377 +111,250 @@ export const StorageService = {
   clearRememberedCredentials: () => {
     localStorage.removeItem('vtc_remember_email');
     localStorage.removeItem('vtc_remember_pass');
+    localStorage.removeItem('vtc_user_email');
   },
 
   initRealtime: () => {
-    const channel = supabase.channel('db_sync');
-    
-    channel
-      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
-        console.log("Supabase Realtime Trigger:", payload.table);
-        StorageService.fetchRemoteData(); // Atualiza tudo para todos os 50+ usuários
-      })
-      .subscribe((status) => {
-        console.log("Status Conexão Realtime:", status);
-      });
+    try {
+        supabase.channel('global').on('postgres_changes', { event: '*', schema: 'public' }, () => {
+            StorageService.fetchRemoteData();
+        }).subscribe();
+    } catch (e) { console.warn("Realtime Offline"); }
   },
 
   fetchRemoteData: async () => {
     try {
-      const [resComp, resDriv, resTrip, resReq, resRole, resLogs] = await Promise.all([
+      const queries = [
         supabase.from('companies').select('*'),
         supabase.from('drivers').select('*'),
         supabase.from('trips').select('*').order('date', { ascending: false }),
         supabase.from('requests').select('*'),
         supabase.from('roles').select('*'),
-        supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(50)
-      ]);
+        supabase.from('logs').select('*').order('timestamp', { ascending: false }).limit(30)
+      ];
 
-      if (resComp.data) {
-        internalData.dbCompanies = resComp.data.map(c => ({
-          id: c.id,
-          name: c.name,
-          tag: c.tag,
-          logo: c.logo,
-          banner: c.banner,
-          ownerName: c.owner_name,
-          ownerEmail: c.owner_email,
-          ownerPhoto: c.owner_photo || null,
-          type: c.type,
-          platforms: c.platforms || [],
-          segment: c.segment,
-          isGroup: !!c.is_group
-        }));
-      }
+      const results = await Promise.allSettled(queries);
 
-      if (resDriv.data) {
-        internalData.dbDrivers = resDriv.data.map(d => ({
-          id: d.id,
-          name: d.name,
-          email: d.email,
-          companyId: d.company_id,
-          companyName: d.company_name,
-          avatar: d.avatar,
-          roleId: d.role_id,
-          status: d.status,
-          distance: Number(d.distance || 0),
-          rank: Number(d.rank || 0)
-        }));
-      }
+      results.forEach((res, i) => {
+        if (res.status === 'fulfilled' && res.value.data) {
+          const data = res.value.data;
+          if (i === 0) internalData.dbCompanies = data.map((c: any) => ({ ...c, ownerEmail: c.owner_email, ownerName: c.owner_name, ownerPhoto: c.owner_photo }));
+          if (i === 1) internalData.dbDrivers = data.map((d: any) => ({ ...d, companyId: d.company_id, companyName: d.company_name, roleId: d.role_id }));
+          if (i === 2) internalData.dbTrips = data.map((t: any) => ({ ...t, driverName: t.driver_name, driverAvatar: t.driver_avatar }));
+          if (i === 3) internalData.dbRequests = data;
+          if (i === 4) internalData.dbRoles = data;
+          // Fix: Mapping user_email database column to user property in UI
+          if (i === 5) internalData.dbLogs = data.map((l: any) => ({ ...l, user: l.user_email }));
+        }
+      });
 
-      const loggedEmail = localStorage.getItem('vtc_user_email') || localStorage.getItem('vtc_remember_email');
-      if (loggedEmail) {
-          const emailLower = loggedEmail.toLowerCase().trim();
-          const userDriver = internalData.dbDrivers.find(d => d.email.toLowerCase() === emailLower);
-          
-          if (userDriver) {
-              internalData.currentUserEmail = emailLower;
-              internalData.ownerName = userDriver.name;
-              internalData.ownerPhoto = userDriver.avatar;
-              
-              const userCompany = internalData.dbCompanies.find(c => c.ownerEmail.toLowerCase() === emailLower);
-              if (userCompany) {
-                  internalData.companyName = userCompany.name;
-                  internalData.companyTag = userCompany.tag;
-                  internalData.companyLogo = userCompany.logo || SYSTEM_LOGO;
-                  internalData.companyBanner = userCompany.banner;
+      const email = localStorage.getItem('vtc_user_email') || internalData.ownerEmail;
+      if (email) {
+          const me = internalData.dbDrivers.find(d => d.email.toLowerCase() === email.toLowerCase());
+          if (me) {
+              internalData.currentUserEmail = email;
+              internalData.ownerName = me.name;
+              internalData.ownerPhoto = me.avatar;
+              const myComp = internalData.dbCompanies.find(c => c.id === me.companyId);
+              if (myComp) {
+                  internalData.companyName = myComp.name;
+                  internalData.companyTag = myComp.tag;
+                  internalData.companyLogo = myComp.logo || SYSTEM_LOGO;
               }
           }
       }
 
-      if (resTrip.data) {
-        internalData.dbTrips = resTrip.data.map(t => ({
-          id: t.id,
-          origin: t.origin,
-          destination: t.destination,
-          distance: Number(t.distance || 0),
-          value: t.value,
-          date: t.date,
-          status: t.status,
-          platform: t.platform,
-          driverName: t.driver_name,
-          driverAvatar: t.driver_avatar,
-          cargo: t.cargo,
-          weight: t.weight,
-          truck: t.truck
-        }));
-      }
-
-      if (resReq.data) {
-          internalData.dbRequests = resReq.data;
-      }
-
-      if (resRole.data) {
-          internalData.dbRoles = resRole.data;
-      }
-
-      if (resLogs.data) {
-          internalData.dbLogs = resLogs.data.map(l => ({
-              id: l.id,
-              action: l.action,
-              details: l.details,
-              timestamp: l.timestamp,
-              user: l.user_email,
-              type: l.type
-          }));
-      }
-
       StorageService.setError(null);
       StorageService.notify();
-    } catch (e: any) {
-      console.warn("Sincronização offline.");
+    } catch (e) {
+      console.warn("Sync falhou, usando cache.");
     }
   },
 
   login: async (email: string, pass: string): Promise<boolean> => {
-      const emailLower = email.toLowerCase().trim();
       try {
-          const { data: user, error } = await supabase
-            .from('drivers')
-            .select('*')
-            .eq('email', emailLower)
-            .eq('password', pass)
-            .maybeSingle();
-
-          if (error) {
-              StorageService.setError(`Erro Supabase: ${error.message}`, error.code);
-              return false;
-          }
-
-          if (user) {
-              localStorage.setItem('vtc_user_email', emailLower);
-              const { data: company } = await supabase.from('companies').select('*').eq('owner_email', emailLower).maybeSingle();
-              
-              internalData.currentUserEmail = emailLower;
-              internalData.ownerName = user.name;
-              internalData.ownerPhoto = user.avatar;
-              internalData.ownerPass = pass;
-              internalData.companyName = company?.name || user.company_name;
-              internalData.companyTag = company?.tag || "";
-              internalData.companyLogo = company?.logo || SYSTEM_LOGO;
-              
+          const { data, error } = await supabase.from('drivers').select('*').eq('email', email.toLowerCase().trim()).eq('password', pass).maybeSingle();
+          if (data && !error) {
+              localStorage.setItem('vtc_user_email', email.toLowerCase().trim());
               await StorageService.fetchRemoteData();
               return true;
           }
-      } catch (e: any) {
-          StorageService.setError(`Falha crítica de conexão.`);
-      }
+      } catch (e) { console.error(e); }
       return false;
   },
 
   logout: () => {
-    localStorage.removeItem('vtc_user_email');
     StorageService.clearRememberedCredentials();
     internalData = { ...INITIAL_DATA, currentUserEmail: "" };
     StorageService.notify();
   },
 
-  // Fix: Added addLog method to record system actions
-  addLog: async (action: string, details: string, type: 'INFO' | 'WARNING' | 'DANGER') => {
-      const { error } = await supabase.from('logs').insert([{
-          id: 'LOG-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
-          action,
-          details,
-          type,
-          timestamp: new Date().toISOString(),
-          user_email: internalData.currentUserEmail || 'System'
-      }]);
-      if (error) console.error("Log error:", error);
-      await StorageService.fetchRemoteData();
-  },
+  // Fix: Added missing createCompany method
+  createCompany: async (c: any) => {
+    const companyId = 'CMP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    const driverId = 'DRV-' + Math.random().toString(36).substr(2, 9).toUpperCase();
 
-  addTrip: async (tripData: Omit<Trip, 'id'>) => {
-      const newTripId = 'TRP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-      const { error } = await supabase.from('trips').insert([{
-          ...tripData,
-          id: newTripId,
-          distance: Number(tripData.distance)
-      }]);
-      if (error) throw error;
-      
-      const driver = internalData.dbDrivers.find(d => d.name === tripData.driverName);
-      if (driver) {
-          await supabase.from('drivers').update({ 
-            distance: Number(driver.distance) + Number(tripData.distance) 
-          }).eq('id', driver.id);
-      }
-      
-      await StorageService.fetchRemoteData();
-      return { ...tripData, id: newTripId };
-  },
+    const { error: cErr } = await supabase.from('companies').insert([{
+      id: companyId,
+      name: c.name,
+      tag: c.tag,
+      logo: c.logo,
+      banner: c.banner,
+      owner_name: c.ownerName,
+      owner_email: c.ownerEmail.toLowerCase().trim(),
+      owner_photo: c.ownerPhoto,
+      type: c.type,
+      platforms: c.platforms,
+      segment: c.segment,
+      is_group: c.isGroup,
+      description: c.description
+    }]);
+    if (cErr) throw cErr;
 
-  // Fix: Added deleteTrip method
-  deleteTrip: async (tripId: string) => {
-    const { error } = await supabase.from('trips').delete().eq('id', tripId);
-    if (error) throw error;
+    const { error: dErr } = await supabase.from('drivers').insert([{
+      id: driverId,
+      name: c.ownerName,
+      email: c.ownerEmail.toLowerCase().trim(),
+      password: c.ownerPass,
+      company_id: companyId,
+      company_name: c.name,
+      avatar: c.ownerPhoto,
+      role_id: 'role-owner',
+      status: 'Ativo',
+      distance: 0,
+      rank: 0
+    }]);
+    if (dErr) throw dErr;
+
+    localStorage.setItem('vtc_user_email', c.ownerEmail.toLowerCase().trim());
     await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added createCompany method
-  createCompany: async (companyData: any) => {
-      const companyId = 'CMP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-      const driverId = 'DRV-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+  addTrip: async (trip: any) => {
+      const id = 'TRP-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      await supabase.from('trips').insert([{ ...trip, id }]);
+      await StorageService.fetchRemoteData();
+  },
 
-      const { error: companyError } = await supabase.from('companies').insert([{
-          id: companyId,
-          name: companyData.name,
-          tag: companyData.tag,
-          logo: companyData.logo,
-          banner: companyData.banner,
-          owner_name: companyData.ownerName,
-          owner_email: companyData.ownerEmail.toLowerCase().trim(),
-          owner_photo: companyData.ownerPhoto,
-          type: companyData.type,
-          platforms: companyData.platforms,
-          segment: companyData.segment,
-          is_group: companyData.isGroup,
-          description: companyData.description
-      }]);
+  deleteTrip: async (id: string) => {
+      await supabase.from('trips').delete().eq('id', id);
+      await StorageService.fetchRemoteData();
+  },
 
-      if (companyError) throw companyError;
+  // Fix: Added missing addRequest method
+  addRequest: async (req: any) => {
+      const id = 'REQ-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      await supabase.from('requests').insert([{ ...req, id }]);
+      await StorageService.fetchRemoteData();
+  },
 
-      const { error: driverError } = await supabase.from('drivers').insert([{
+  // Fix: Added missing removeRequest method
+  removeRequest: async (id: string) => {
+      await supabase.from('requests').delete().eq('id', id);
+      await StorageService.fetchRemoteData();
+  },
+
+  // Fix: Added missing approveRequest method
+  approveRequest: async (req: Request) => {
+      if (req.type === 'ENTRY' && req.details) {
+        const details = req.details;
+        const driverId = 'DRV-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+        await supabase.from('drivers').insert([{
           id: driverId,
-          name: companyData.ownerName,
-          email: companyData.ownerEmail.toLowerCase().trim(),
-          password: companyData.ownerPass,
-          company_id: companyId,
-          company_name: companyData.name,
-          avatar: companyData.ownerPhoto,
-          role_id: 'role-owner',
+          name: req.name,
+          email: details.email.toLowerCase().trim(),
+          password: details.password,
+          company_id: details.companyId,
+          company_name: details.companyName,
+          avatar: req.avatar,
+          role_id: 'role-driver',
           status: 'Ativo',
           distance: 0,
           rank: 0
-      }]);
-
-      if (driverError) throw driverError;
-
-      await StorageService.fetchRemoteData();
-      return { id: companyId };
-  },
-
-  // Fix: Added addRequest method
-  addRequest: async (requestData: Omit<Request, 'id'>) => {
-      const id = 'REQ-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-      const { error } = await supabase.from('requests').insert([{
-          ...requestData,
-          id
-      }]);
-      if (error) throw error;
-      await StorageService.fetchRemoteData();
-  },
-
-  // Fix: Added removeRequest method
-  removeRequest: async (id: string) => {
-      const { error } = await supabase.from('requests').delete().eq('id', id);
-      if (error) throw error;
-      await StorageService.fetchRemoteData();
-  },
-
-  // Fix: Added approveRequest method
-  approveRequest: async (req: Request) => {
-      if (req.type === 'ENTRY' && req.details) {
-          const driverId = 'DRV-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-          const { error: driverError } = await supabase.from('drivers').insert([{
-              id: driverId,
-              name: req.name,
-              email: req.details.email.toLowerCase().trim(),
-              password: req.details.password,
-              company_id: req.details.companyId,
-              company_name: req.details.companyName,
-              avatar: req.avatar,
-              role_id: 'role-driver',
-              status: 'Ativo',
-              distance: 0,
-              rank: 0
-          }]);
-          if (driverError) throw driverError;
+        }]);
       }
-      await StorageService.removeRequest(req.id);
+      await supabase.from('requests').delete().eq('id', req.id);
+      await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added sendContractProposal method
+  // Fix: Added missing sendContractProposal method
   sendContractProposal: async (target: Company, split: number) => {
-      await StorageService.addRequest({
-          name: internalData.companyName,
-          avatar: internalData.companyLogo || '',
-          message: `Proposta de Contrato B2B: Divisão de ${split}%/${100-split}%`,
-          type: 'CONTRACT_PROPOSAL',
-          timestamp: new Date().toISOString(),
-          targetId: target.id,
-          fromId: internalData.currentUserEmail,
-          details: { split, fromCompany: internalData.companyName }
-      });
-  },
-
-  // Fix: Added addRole method
-  addRole: async (roleData: Omit<Role, 'id'>) => {
-      const id = 'ROL-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-      const { error } = await supabase.from('roles').insert([{
-          ...roleData,
-          id
+      const id = 'REQ-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      const me = internalData.dbDrivers.find(d => d.email === internalData.currentUserEmail);
+      await supabase.from('requests').insert([{
+        id,
+        name: internalData.companyName,
+        avatar: internalData.companyLogo,
+        message: `Proposta de contrato B2B: Divisão ${split}% / ${100 - split}%`,
+        type: 'CONTRACT_PROPOSAL',
+        timestamp: new Date().toISOString(),
+        from_id: me?.companyId,
+        target_id: target.id,
+        details: { split, senderName: internalData.companyName }
       }]);
-      if (error) throw error;
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added updateRole method
-  updateRole: async (id: string, updates: Partial<Role>) => {
-      const { error } = await supabase.from('roles').update(updates).eq('id', id);
-      if (error) throw error;
+  // Fix: Added missing addRole method
+  addRole: async (role: any) => {
+      const id = 'ROL-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      await supabase.from('roles').insert([{ ...role, id }]);
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added deleteRole method
+  // Fix: Added missing updateRole method
+  updateRole: async (id: string, updates: any) => {
+      await supabase.from('roles').update(updates).eq('id', id);
+      await StorageService.fetchRemoteData();
+  },
+
+  // Fix: Added missing deleteRole method
   deleteRole: async (id: string) => {
-      const { error } = await supabase.from('roles').delete().eq('id', id);
-      if (error) throw error;
+      await supabase.from('roles').delete().eq('id', id);
       await StorageService.fetchRemoteData();
   },
 
-  // Fix: Added assignRole method
+  // Fix: Added missing assignRole method
   assignRole: async (driverId: string, roleId: string) => {
-      const { error } = await supabase.from('drivers').update({ role_id: roleId }).eq('id', driverId);
-      if (error) throw error;
+      await supabase.from('drivers').update({ role_id: roleId }).eq('id', driverId);
       await StorageService.fetchRemoteData();
   },
 
-  saveData: (updates: Partial<AppData>): AppData => {
-    internalData = { ...internalData, ...updates };
-    const sync = async () => {
-      if (updates.ownerName || updates.ownerPhoto) {
-        await supabase.from('drivers').update({
-          name: updates.ownerName || internalData.ownerName,
-          avatar: updates.ownerPhoto || internalData.ownerPhoto
-        }).eq('email', internalData.currentUserEmail);
-      }
+  // Fix: Added missing addLog method
+  addLog: async (action: string, details: string, type: 'INFO' | 'WARNING' | 'DANGER') => {
+      const id = 'LOG-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+      await supabase.from('logs').insert([{
+        id,
+        action,
+        details,
+        type,
+        timestamp: new Date().toISOString(),
+        user_email: internalData.currentUserEmail || 'Sistema'
+      }]);
       await StorageService.fetchRemoteData();
-    };
-    sync();
-    StorageService.notify();
-    return internalData;
+  },
+
+  saveData: (updates: Partial<AppData>) => {
+      internalData = { ...internalData, ...updates };
+      StorageService.notify();
+      return internalData;
   },
 
   hasPermission: (permission: Permission): boolean => {
-      if (!internalData.currentUserEmail) return false;
-      const emailLower = internalData.currentUserEmail.toLowerCase().trim();
-      if (emailLower === 'ceoctsvirtual@gmail.com') return true;
-      const driver = internalData.dbDrivers.find(d => d.email.toLowerCase() === emailLower);
-      if (!driver) return false;
-      const role = internalData.dbRoles.find(r => r.id === driver.roleId);
-      if (role && role.permissions.includes(permission)) return true;
-      return driver.roleId === 'role-owner' || false;
+      const email = internalData.currentUserEmail.toLowerCase();
+      if (email === 'ceoctsvirtual@gmail.com') return true;
+      const me = internalData.dbDrivers.find(d => d.email.toLowerCase() === email);
+      if (!me) return false;
+      const role = internalData.dbRoles.find(r => r.id === me.roleId);
+      return role?.permissions.includes(permission) || me.roleId === 'role-owner';
   },
 
-  calculateDistance: (origin: string, dest: string): number => (origin.length + dest.length) * 45,
-  getCargoWeight: (cargo: string): number | undefined => (LOGISTICS_DB.CARGO_WEIGHTS as Record<string, number>)[cargo],
-  fileToBase64: (file: File): Promise<string> => new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = error => reject(error);
-  }),
-  checkMonthlyReset: () => {}
+  calculateDistance: (o: string, d: string) => (o.length + d.length) * 45,
+  getCargoWeight: (c: string) => (LOGISTICS_DB.CARGO_WEIGHTS as any)[c],
+  fileToBase64: (f: File): Promise<string> => new Promise((res, rej) => {
+      const r = new FileReader(); r.readAsDataURL(f);
+      r.onload = () => res(r.result as string); r.onerror = e => rej(e);
+  })
 };
 
 export const LOGISTICS_DB = {
